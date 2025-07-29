@@ -1,28 +1,53 @@
-from flask import Flask
+from flask import Flask, request
 from threading import Thread
 import logging
 import requests
 import time
 import os
+import asyncio
+
+logger = logging.getLogger('keep_alive')
 
 app = Flask('')
-logger = logging.getLogger('keep_alive')
+bot_loop = None
+auth_manager = None
 
 @app.route('/')
 def home():
-    return "Bot is alive and running!"
+    return "FlipperBot is alive!"
 
 @app.route('/health')
-def health():
-    return "Healthy", 200
+def health_check():
+    return "OK", 200
+
+@app.route('/callback')
+def auth_callback():
+    code = request.args.get('code')
+    state = request.args.get('state')
+    
+    if not code or not state:
+        return "OAuth callback is missing required parameters (code, state).", 400
+    
+    if auth_manager and bot_loop:
+        # Schedule the coroutine on the bot's event loop
+        asyncio.run_coroutine_threadsafe(
+            auth_manager.handle_auth_callback(code, state),
+            bot_loop
+        )
+        return "Authentication successful! You can now close this tab."
+    else:
+        logger.error("Auth manager or bot event loop not initialized for callback.")
+        return "Bot is not ready to handle authentication. Please try again in a moment.", 503
 
 def run():
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=10000)
 
-def keep_alive():
+def keep_alive(loop, manager):
+    global bot_loop, auth_manager
+    bot_loop = loop
+    auth_manager = manager
+    
     server = Thread(target=run)
-    server.daemon = True
     server.start()
     logger.info("Keep-alive server started")
 

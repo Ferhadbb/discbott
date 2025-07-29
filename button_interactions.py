@@ -330,7 +330,10 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             auth_manager = getattr(self.bot, 'auth_manager', None)
             if not auth_manager:
                 raise RuntimeError("Auth manager is not initialized.")
-            auth_url, session_id = auth_manager.generate_auth_url()
+            
+            # Pass the user's ID to generate and track the auth URL
+            auth_url, state = auth_manager.generate_auth_url(interaction.user.id)
+            
             embed = discord.Embed(
                 title="🔐 Microsoft Account Verification",
                 description=(
@@ -339,15 +342,15 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                     f"• [Click here to verify with Microsoft]({auth_url})\n\n"
                     "2️⃣ **Login Process**\n"
                     "• Sign in with your Microsoft account\n"
-                    "• Complete the verification\n\n"
+                    "• You will be redirected to a page confirming success.\n\n"
                     "3️⃣ **Completion**\n"
-                    "• You'll be redirected back\n"
-                    "• Your roles will be updated automatically\n\n"
-                    "⚠️ This link expires in 10 minutes"
+                    "• Return to Discord. Your roles will be updated automatically."
                 ),
                 color=discord.Color.green()
             )
+            
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            
         except Exception as e:
             logger.error(f"Error in OAuth process: {e}")
             error_embed = discord.Embed(

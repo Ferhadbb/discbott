@@ -28,7 +28,9 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=config.get('bot.prefix', '!'), intents=intents)
 
 # Initialize auth manager
-auth_manager = None  # Will be initialized after bot is ready
+auth_manager = AuthManager()  # Will be initialized after bot is ready
+bot.auth_manager = auth_manager  # Set auth_manager on the bot object
+auth_manager.bot = bot  # Set bot instance for admin channel access
 
 # Load cogs
 async def load_cogs():
@@ -328,7 +330,7 @@ class SkyblockFlipper(commands.Cog):
             inline=True
         )
         embed.add_field(
-            name="📈 Estimated Value",
+            name="�� Estimated Value",
             value=f"{flip_data['estimated_value']:,} coins",
             inline=True
         )
@@ -396,6 +398,9 @@ async def on_command_error(ctx, error):
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
     
+    # Pass bot instance to auth manager
+    auth_manager.bot = bot
+    
     # Set bot status
     activity_type = config.get('bot.activity_type', 'watching').lower()
     activity_types = {
@@ -409,12 +414,6 @@ async def on_ready():
         name=config.get('bot.status', 'Watching for flips')
     )
     await bot.change_presence(activity=activity)
-    
-    # Initialize auth manager
-    global auth_manager
-    auth_manager = AuthManager()
-    bot.auth_manager = auth_manager  # Set auth_manager on the bot object
-    auth_manager.bot = bot  # Set bot instance for admin channel access
     
     # Load cogs
     await load_cogs()
@@ -503,9 +502,12 @@ def main():
         return
 
     try:
-        # Start keep-alive server
+        # Get the current asyncio event loop
+        loop = asyncio.get_event_loop()
+        
+        # Start keep-alive server and pass it the loop and auth_manager
         logger.info("Starting keep-alive server...")
-        keep_alive()
+        keep_alive(loop, auth_manager)
         start_self_ping()
         
         # Log successful initialization

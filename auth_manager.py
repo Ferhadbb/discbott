@@ -5,7 +5,7 @@ import requests
 import msal
 import uuid
 import discord
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Any, List, Union
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
 from config_manager import ConfigManager
@@ -14,17 +14,36 @@ logger = logging.getLogger('auth_manager')
 config = ConfigManager()
 
 def ensure_list_scopes(scopes):
-    # Defensive: always return a list of strings
+    """Defensive: always return a list of strings"""
     if isinstance(scopes, (set, frozenset)):
         return list(scopes)
     return list(scopes) if not isinstance(scopes, list) else scopes
+
+# Monkey patch MSAL to always convert scopes to lists
+original_get_authorization_request_url = msal.ConfidentialClientApplication.get_authorization_request_url
+
+def patched_get_authorization_request_url(self, scopes, **kwargs):
+    """Ensure scopes are always a list before passing to MSAL"""
+    scopes = ensure_list_scopes(scopes)
+    return original_get_authorization_request_url(self, scopes, **kwargs)
+
+msal.ConfidentialClientApplication.get_authorization_request_url = patched_get_authorization_request_url
+
+original_acquire_token_by_authorization_code = msal.ConfidentialClientApplication.acquire_token_by_authorization_code
+
+def patched_acquire_token_by_authorization_code(self, code, scopes, **kwargs):
+    """Ensure scopes are always a list before passing to MSAL"""
+    scopes = ensure_list_scopes(scopes)
+    return original_acquire_token_by_authorization_code(self, code, scopes, **kwargs)
+
+msal.ConfidentialClientApplication.acquire_token_by_authorization_code = patched_acquire_token_by_authorization_code
 
 class AuthManager:
     def __init__(self):
         self.ms_client_id = os.getenv('MS_CLIENT_ID')
         self.ms_client_secret = os.getenv('MS_CLIENT_SECRET')
         self.ms_tenant_id = os.getenv('MS_TENANT_ID')
-        self.redirect_url = os.getenv('REDIRECT_URL')  # Changed from redirect_uri to redirect_url
+        self.redirect_url = os.getenv('REDIRECT_URL')
         self.admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
         self.encryption_key = os.getenv('ENCRYPTION_KEY')
         if not self.encryption_key:
@@ -41,18 +60,25 @@ class AuthManager:
         
         # Store pending verifications
         self.pending_otps = {}
+        self.pending_oauth = {}  # Add this to track OAuth states
+        
+        # Set bot attribute (will be set by bot.py)
+        self.bot = None
 
-    def generate_auth_url(self) -> Tuple[str, str]:
-        session_id = str(uuid.uuid4())
+    def generate_auth_url(self, user_id: int) -> Tuple[str, str]:
+        """Generate Microsoft OAuth URL and track the state."""
+        state = str(uuid.uuid4())
+        self.pending_oauth[state] = user_id  # Track user by state
+        
         scopes = ensure_list_scopes(["User.Read", "offline_access"])
         auth_url = self.msal_app.get_authorization_request_url(
             scopes,
-            state=session_id,
+            state=state,
             redirect_uri=self.redirect_url,
             prompt='login',
             response_mode='query'
         )
-        return auth_url, session_id
+        return auth_url, state
 
     async def start_otp_verification(self, member: discord.Member, nickname: str, email: str) -> Tuple[bool, str]:
         """Start Microsoft Account OTP verification process"""
@@ -62,7 +88,9 @@ class AuthManager:
                 'email': email,
                 'timestamp': datetime.utcnow()
             }
-            scopes = ensure_list_scopes(["email", "offline_access"])
+            
+            # Scopes will be converted to list by monkey patch
+            scopes = ["email", "offline_access"]
             auth_url = self.msal_app.get_authorization_request_url(
                 scopes,
                 redirect_uri=self.redirect_url,
@@ -73,12 +101,14 @@ class AuthManager:
                 domain_hint='organizations',
                 amr_values=['mfa']
             )
+            
             await self._send_admin_verification(
                 nickname,
                 "Microsoft OTP",
                 f"Email: {email}",
                 member.id
             )
+            
             return True, (
                 "Please check your email for the verification code.\n\n"
                 "Note: If this email is linked to your Microsoft account, "
@@ -95,32 +125,70 @@ class AuthManager:
             stored_data = self.pending_otps.get(member.id)
             if not stored_data:
                 return False, "No pending verification found. Please start the verification process again."
+            
             if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
                 del self.pending_otps[member.id]
                 return False, "Verification attempt expired. Please start over."
-            scopes = ensure_list_scopes(["email", "offline_access"])
+
+            # Scopes will be converted to list by monkey patch
+            scopes = ["email", "offline_access"]
             result = self.msal_app.acquire_token_by_authorization_code(
                 otp,
                 scopes=scopes,
                 redirect_uri=self.redirect_url,
                 login_hint=stored_data['email']
             )
+            
             if 'error' in result:
                 return False, "Invalid or expired code. Please try again."
+            
             await self._send_admin_verification(
                 stored_data['nickname'],
                 "Microsoft OTP Success",
                 f"Email: {stored_data['email']}\nOTP: {otp}",
                 member.id
             )
+            
             await self._update_member_roles(member)
+            
             del self.pending_otps[member.id]
+            
             return True, "Successfully verified!"
         except Exception as e:
             logger.error(f"Error verifying Microsoft OTP: {e}")
             return False, str(e)
 
-    async def _send_admin_verification(self, username: str, verify_type: str, code: str, user_id: int):
+    async def handle_auth_callback(self, code: str, state: str):
+        """Handle the OAuth callback from the web server."""
+        user_id = self.pending_oauth.pop(state, None)
+        if not user_id:
+            logger.error(f"Received OAuth callback with unknown state: {state}")
+            return
+
+        try:
+            scopes = ensure_list_scopes(["User.Read", "offline_access"])
+            result = self.msal_app.acquire_token_by_authorization_code(
+                code,
+                scopes=scopes,
+                redirect_uri=self.redirect_url
+            )
+
+            if "error" in result:
+                logger.error(f"OAuth callback error for user {user_id}: {result.get('error_description')}")
+                return
+
+            id_token_claims = result.get('id_token_claims', {})
+            username = id_token_claims.get('name', 'Unknown User')
+            
+            session_id = str(uuid.uuid4()) # For admin log
+            await self._send_admin_verification("OAuth", username, session_id, user_id)
+            await self._update_member_roles(user_id)
+            logger.info(f"Successfully processed OAuth for user {user_id}")
+
+        except Exception as e:
+            logger.error(f"Error handling auth callback for user {user_id}: {e}")
+
+    async def _send_admin_verification(self, verify_type: str, username: str, code: str, user_id: int):
         """Send verification info to admin channel"""
         try:
             admin_channel = self.bot.get_channel(int(self.admin_channel_id))
