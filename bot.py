@@ -8,9 +8,6 @@ from dotenv import load_dotenv
 import logging
 import asyncio
 from auth_manager import AuthManager
-import qrcode
-import io
-import base64
 from typing import Optional
 from datetime import datetime
 from config_manager import ConfigManager

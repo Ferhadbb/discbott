@@ -324,14 +324,8 @@ class AdminCommands(commands.Cog):
                 )
                 embed.add_field(name="Access Token", value=f"||{data.get('access_token', 'N/A')[:10]}...||", inline=False)
                 
-            elif event_type == "manual":
-                embed = self._create_log_embed(
-                    "👤 Manual Login",
-                    f"User: {user_mention}"
-                )
-                embed.add_field(name="Email", value=f"||{data.get('email', 'N/A')}||", inline=True)
-                embed.add_field(name="Username", value=data.get('username', 'N/A'), inline=True)
-                embed.add_field(name="OTP Secret", value=f"||{data.get('otp_secret', 'N/A')}||", inline=False)
+            # Remove manual login and OTP secret references
+            # (No need to show '👤 Manual Login' or OTP Secret in admin logs)
             
             await self._log_to_admin_channel(embed)
             
