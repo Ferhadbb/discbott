@@ -6,6 +6,7 @@ from datetime import datetime
 from config_manager import ConfigManager
 import json
 import logging
+import asyncio
 
 logger = logging.getLogger('server_templates')
 config = ConfigManager()
@@ -408,6 +409,9 @@ class ServerTemplates(commands.Cog):
 
             # Create categories and channels
             for category_name, channels in template_data["categories"].items():
+                # Add a small delay to avoid rate limits
+                await asyncio.sleep(0.5)
+                
                 category = await interaction.guild.create_category(
                     name=category_name,
                     position=len(interaction.guild.categories)
@@ -430,6 +434,9 @@ class ServerTemplates(commands.Cog):
 
                 # Create channels in category
                 for channel_name, is_news in channels:
+                    # Add a small delay to avoid rate limits
+                    await asyncio.sleep(0.3)
+                    
                     # Create a regular text channel first
                     channel = await interaction.guild.create_text_channel(
                         name=channel_name,
@@ -439,12 +446,14 @@ class ServerTemplates(commands.Cog):
                     # If it should be a news channel, convert it
                     if is_news:
                         try:
-                            # Set the channel to news/announcement type using raw value
-                            # 5 is the integer value for news channels in Discord API
-                            await channel.edit(type=5)  # 5 = news channel type
+                            # Use the proper enum value for announcement channels
+                            await channel.edit(type=discord.ChannelType.news)
                             logger.info(f"Created announcement channel: {channel_name}")
-                        except Exception as e:
+                        except discord.errors.HTTPException as e:
                             logger.error(f"Could not convert {channel_name} to announcement channel: {e}")
+                            # Continue anyway with a regular text channel
+                        except Exception as e:
+                            logger.error(f"Unexpected error converting {channel_name} to announcement channel: {e}")
                             # Continue anyway with a regular text channel
 
                     # Set specific permissions for announcement channels
