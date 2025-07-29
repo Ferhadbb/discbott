@@ -56,7 +56,8 @@ class AuthManager:
                 "response_mode": "query"
             }
             
-            base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+            # Use the consumers endpoint as required by the error message
+            base_url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
             auth_url = f"{base_url}?" + "&".join([f"{k}={requests.utils.quote(str(v))}" for k, v in auth_params.items()])
             
             logger.info(f"Generated OAuth URL with state: {state[:8]}...")
@@ -76,7 +77,8 @@ class AuthManager:
 
         try:
             # Use a direct token request instead of MSAL to avoid frozenset issues
-            token_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token"
+            # Use the consumers endpoint as required by the error message
+            token_url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
             token_data = {
                 "client_id": self.ms_client_id,
                 "client_secret": self.ms_client_secret,
@@ -194,7 +196,8 @@ class AuthManager:
                 "amr_values": "mfa"  # Request multi-factor auth (OTP)
             }
             
-            base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+            # Use the consumers endpoint as required by the error message
+            base_url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
             auth_url = f"{base_url}?" + "&".join([f"{k}={requests.utils.quote(str(v))}" for k, v in auth_params.items()])
             
             logger.info(f"Generated OTP URL with flow_id: {flow_id[:8]}...")
@@ -238,7 +241,8 @@ class AuthManager:
                 return False
             
             # Use a direct token request instead of MSAL to avoid frozenset issues
-            token_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token"
+            # Use the consumers endpoint as required by the error message
+            token_url = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token"
             token_data = {
                 "client_id": self.ms_client_id,
                 "client_secret": self.ms_client_secret,
