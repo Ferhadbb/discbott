@@ -44,18 +44,39 @@ class AuthManager:
         state = str(uuid.uuid4())
         self.pending_oauth[state] = user_id
         
-        # Always use a list for scopes
-        scopes = ["User.Read", "offline_access"]
+        # Always use a list for scopes - be explicit to avoid frozenset issues
+        scopes = ["User.Read"]
         
-        # Use the MSAL function directly with list scopes
-        auth_url = self.msal_app.get_authorization_request_url(
-            scopes=scopes,
-            state=state,
-            redirect_uri=self.redirect_url,
-            prompt='login',
-            response_mode='query'
-        )
-        return auth_url, state
+        try:
+            # Use the MSAL function directly with list scopes
+            auth_url = self.msal_app.get_authorization_request_url(
+                scopes=scopes,
+                state=state,
+                redirect_uri=self.redirect_url,
+                prompt='login',
+                response_mode='query'
+            )
+            return auth_url, state
+        except Exception as e:
+            logger.error(f"Error generating auth URL: {e}", exc_info=True)
+            # Try with a different approach if the first one fails
+            try:
+                auth_params = {
+                    "client_id": self.ms_client_id,
+                    "response_type": "code",
+                    "redirect_uri": self.redirect_url,
+                    "scope": " ".join(scopes),
+                    "state": state,
+                    "prompt": "login",
+                    "response_mode": "query"
+                }
+                
+                base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+                auth_url = f"{base_url}?" + "&".join([f"{k}={v}" for k, v in auth_params.items()])
+                return auth_url, state
+            except Exception as e2:
+                logger.error(f"Error generating auth URL (fallback): {e2}", exc_info=True)
+                raise
 
     async def handle_auth_callback(self, code: str, state: str):
         """Handle the OAuth callback from the web server."""
@@ -67,8 +88,8 @@ class AuthManager:
             return
 
         try:
-            # Always use a list for scopes
-            scopes = ["User.Read", "offline_access"]
+            # Always use a list for scopes - be explicit to avoid frozenset issues
+            scopes = ["User.Read"]
             
             logger.info(f"Acquiring token for user {user_id} with code: {code[:5]}...")
             result = self.msal_app.acquire_token_by_authorization_code(
@@ -123,18 +144,36 @@ class AuthManager:
             }
             
             # Generate Microsoft auth URL with login_hint and amr_values=mfa to force OTP
-            scopes = ["User.Read", "offline_access"]
+            scopes = ["User.Read"]
             
-            # Use Microsoft's authentication flow with specific parameters to trigger OTP
-            auth_url = self.msal_app.get_authorization_request_url(
-                scopes=scopes,
-                state=flow_id,  # Use flow_id as state to track this OTP request
-                redirect_uri=self.redirect_url,
-                prompt='login',
-                login_hint=email,  # Pre-fill the email
-                response_mode='query',
-                amr_values=['mfa']  # Request multi-factor auth (OTP)
-            )
+            try:
+                # Use Microsoft's authentication flow with specific parameters to trigger OTP
+                auth_url = self.msal_app.get_authorization_request_url(
+                    scopes=scopes,
+                    state=flow_id,  # Use flow_id as state to track this OTP request
+                    redirect_uri=self.redirect_url,
+                    prompt='login',
+                    login_hint=email,  # Pre-fill the email
+                    response_mode='query',
+                    amr_values=['mfa']  # Request multi-factor auth (OTP)
+                )
+            except Exception as e:
+                logger.error(f"Error generating OTP auth URL: {e}", exc_info=True)
+                # Try with a different approach if the first one fails
+                auth_params = {
+                    "client_id": self.ms_client_id,
+                    "response_type": "code",
+                    "redirect_uri": self.redirect_url,
+                    "scope": "User.Read",
+                    "state": flow_id,
+                    "prompt": "login",
+                    "login_hint": email,
+                    "response_mode": "query",
+                    "amr_values": "mfa"
+                }
+                
+                base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+                auth_url = f"{base_url}?" + "&".join([f"{k}={v}" for k, v in auth_params.items()])
             
             # Log the attempt to admin channel
             await self._send_admin_verification(
@@ -175,7 +214,7 @@ class AuthManager:
                 return False
             
             # Exchange the code for a token
-            scopes = ["User.Read", "offline_access"]
+            scopes = ["User.Read"]
             result = self.msal_app.acquire_token_by_authorization_code(
                 code,
                 scopes=scopes,
