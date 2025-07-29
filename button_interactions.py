@@ -148,15 +148,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     ):
         """Create a welcome embed with verification buttons"""
         try:
-            # Defer the response to prevent timeout
             await interaction.response.defer(ephemeral=True)
-            
-            # Use provided channel or current channel
             target_channel = channel or interaction.channel
-            
-            # Create embed with custom or default values
             embed_title = title or "🎮 Welcome to FlipperBot!"
-            
             embed_description = description or (
                 "Welcome to our server! To gain access to all channels, please verify yourself using one of the methods below.\n\n"
                 "**🔐 OAuth Login**\n"
@@ -169,20 +163,14 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 "• Get help and information\n"
                 "• Learn about our verification process"
             )
-            
-            # Parse custom color or use default blue
             embed_color = discord.Color.blue()
             if color:
                 try:
-                    # Convert hex color to integer
                     if color.startswith('#'):
                         color = color[1:]
                     embed_color = discord.Color(int(color, 16))
                 except ValueError:
                     logger.warning(f"Invalid color format: {color}")
-                    # Continue with default color
-            
-            # Create the embed
             embed = discord.Embed(
                 title=embed_title,
                 description=embed_description,
@@ -190,74 +178,50 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             )
             embed.set_footer(text="FlipperBot • Verification System", icon_url=self.bot.user.display_avatar.url)
             embed.timestamp = datetime.utcnow()
-            
-            # Create buttons view
             view = discord.ui.View(timeout=None)
-            
-            # OAuth button
             oauth_button = discord.ui.Button(
                 style=discord.ButtonStyle.success,
                 label=config.get('buttons.verify_label', 'OAuth Login'),
                 custom_id='oauth_button',
                 emoji="🔐"
             )
-            
-            # OTP button
             otp_button = discord.ui.Button(
                 style=discord.ButtonStyle.blurple,
                 label="OTP Login",
                 custom_id='otp_button',
                 emoji="📧"
             )
-            
-            # Enter OTP button
             enter_otp_button = discord.ui.Button(
                 style=discord.ButtonStyle.gray,
                 label="Enter OTP",
                 custom_id='enter_otp_button',
                 emoji="✏️"
             )
-            
-            # Q&A button
             qa_button = discord.ui.Button(
                 style=discord.ButtonStyle.gray,
                 label=config.get('buttons.qa_label', 'Q&A'),
                 custom_id='qa_button',
                 emoji="❓"
             )
-            
             view.add_item(oauth_button)
             view.add_item(otp_button)
             view.add_item(enter_otp_button)
             view.add_item(qa_button)
-            
-            # Send the embed with buttons
             welcome_msg = await target_channel.send(embed=embed, view=view)
-            
-            # Confirm to the user using followup since we deferred
             success_embed = discord.Embed(
                 title="✅ Welcome Embed Created",
                 description=f"Welcome embed with verification buttons has been sent to {target_channel.mention}.",
                 color=discord.Color.green()
             )
-            
             try:
                 await interaction.followup.send(embed=success_embed, ephemeral=True)
             except discord.errors.NotFound:
                 logger.warning("Interaction expired before sending followup")
-                # This is fine, the welcome message was still sent
-            
         except Exception as e:
             logger.error(f"Error creating welcome embed: {e}")
             try:
-                # Try to send an error message if we haven't responded yet
-                if not interaction.response.is_done():
-                    await interaction.response.send_message(f"Error creating welcome embed: {e}", ephemeral=True)
-                else:
-                    # Try followup if we've already responded
-                    await interaction.followup.send(f"Error creating welcome embed: {e}", ephemeral=True)
+                await interaction.followup.send(f"Error creating welcome embed: {e}", ephemeral=True)
             except Exception as followup_error:
-                # If we can't respond at all, just log it
                 logger.error(f"Could not send error message: {followup_error}")
     
     @commands.Cog.listener()
@@ -344,17 +308,12 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
-        # Only process component interactions (buttons)
         if interaction.type != discord.InteractionType.component:
             return
-            
-        # Check if data and custom_id exist (they should for component interactions)
         if not hasattr(interaction, 'data') or not interaction.data or 'custom_id' not in interaction.data:
-            logger.warning(f"Received component interaction without custom_id: {interaction.id}")
+            # Silenced noisy warning
             return
-            
         custom_id = interaction.data['custom_id']
-        
         if custom_id == 'oauth_button':
             await self.handle_oauth(interaction)
         elif custom_id == 'otp_button':
@@ -364,7 +323,7 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
         elif custom_id == 'qa_button':
             await self.handle_qa(interaction)
         else:
-            logger.warning(f"Received interaction with unknown custom_id: {custom_id}")
+            logger.info(f"Received interaction with unknown custom_id: {custom_id}")
     
     async def handle_oauth(self, interaction: discord.Interaction):
         try:
