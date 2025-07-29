@@ -27,11 +27,11 @@ services:
         sync: false
       - key: REDIRECT_URI
         sync: false
-      - key: JWT_SECRET_KEY
-        sync: false
       - key: ENCRYPTION_KEY
         sync: false
       - key: OTP_SECRET_KEY
+        sync: false
+      - key: ADMIN_CHANNEL_ID
         sync: false
     healthCheckPath: /
     numInstances: 1

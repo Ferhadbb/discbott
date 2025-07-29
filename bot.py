@@ -30,10 +30,14 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix=config.get('bot.prefix', '!'), intents=intents)
 
 # Initialize auth manager
-auth_manager = AuthManager()
+auth_manager = None  # Will be initialized after bot is ready
 
 # Load cogs
 async def load_cogs():
+    global auth_manager
+    auth_manager = AuthManager()
+    auth_manager.bot = bot  # Set bot instance for admin channel access
+    
     await bot.load_extension('admin_commands')
     await bot.load_extension('embed_builder')
     await bot.load_extension('monitoring')  # Add monitoring cog
