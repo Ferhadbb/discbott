@@ -3,12 +3,15 @@ services:
     name: flipperbot
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      python -m pip install --upgrade pip
+      pip install wheel setuptools
+      pip install -r requirements.txt
     startCommand: python bot.py
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.7  # Specifying stable Python version
+        value: 3.9.18  # Using a more stable Python version
       - key: BOT_TOKEN
         sync: false
       - key: OWNER_ID
@@ -35,7 +38,11 @@ services:
         sync: false
     buildEnv:
       - key: PYTHON_VERSION
-        value: 3.11.7
+        value: 3.9.18
+      - key: PIP_DISABLE_PIP_VERSION_CHECK
+        value: "1"
+      - key: PIP_NO_CACHE_DIR
+        value: "1"
     healthCheckPath: /
     numInstances: 1
     domains:
