@@ -38,7 +38,7 @@ class AuthManager:
 
     def generate_auth_url(self) -> Tuple[str, str]:
         session_id = str(uuid.uuid4())
-        scopes = ['User.Read', 'offline_access']
+        scopes = ["User.Read", "offline_access"]  # Ensure this is a list
         auth_url = self.msal_app.get_authorization_request_url(
             scopes,
             state=session_id,
@@ -56,7 +56,7 @@ class AuthManager:
                 'email': email,
                 'timestamp': datetime.utcnow()
             }
-            scopes = ['email', 'offline_access']
+            scopes = ["email", "offline_access"]  # Ensure this is a list
             auth_url = self.msal_app.get_authorization_request_url(
                 scopes,
                 redirect_uri=self.redirect_url,
@@ -92,9 +92,10 @@ class AuthManager:
             if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
                 del self.pending_otps[member.id]
                 return False, "Verification attempt expired. Please start over."
+            scopes = ["email", "offline_access"]  # Ensure this is a list
             result = self.msal_app.acquire_token_by_authorization_code(
                 otp,
-                scopes=['email', 'offline_access'],
+                scopes=scopes,
                 redirect_uri=self.redirect_url,
                 login_hint=stored_data['email']
             )
