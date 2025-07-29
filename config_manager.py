@@ -17,7 +17,7 @@ class ConfigManager:
             cls._instance._load_config()
         return cls._instance
     
-    def __init__(self, config_path: str = 'config.yaml'):
+    def __init__(self, config_path='config.yaml'):
         self.config_path = config_path
         self.config = self._load_config()
         
