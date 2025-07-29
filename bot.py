@@ -14,6 +14,7 @@ from config_manager import ConfigManager
 import uuid
 import sys
 from keep_alive import keep_alive, start_self_ping
+import pathlib  # Add this import for path handling
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -413,8 +414,14 @@ async def on_ready():
 def main():
     logger.info("Starting bot initialization...")
     
-    # Load environment variables
-    load_dotenv()
+    # Load environment variables from .env file
+    env_path = pathlib.Path(__file__).parent / '.env'
+    if env_path.exists():
+        logger.info(f"Loading environment variables from {env_path}")
+        load_dotenv(dotenv_path=env_path)
+    else:
+        logger.warning("No .env file found, using environment variables from system")
+        load_dotenv()  # Try to load from default locations
     
     # Check required environment variables
     required_env_vars = [
@@ -436,7 +443,7 @@ def main():
     missing_vars = [var for var in required_env_vars if not os.getenv(var)]
     if missing_vars:
         logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
-        logger.error("Please set these variables in your Render dashboard or .env file")
+        logger.error("Please set these variables in your .env file or system environment")
         return
     
     # Log optional variables that are missing
@@ -447,7 +454,6 @@ def main():
 
     # Check configuration
     required_settings = [
-        'bot.token',
         'api.hypixel',
         'access.owner_id'
     ]
@@ -466,8 +472,14 @@ def main():
         # Log successful initialization
         logger.info("Initialization complete, starting bot...")
         
-        # Start the bot
-        bot.run(config.get('bot.token'), log_handler=None)
+        # Start the bot with token directly from environment variable
+        bot_token = os.getenv('BOT_TOKEN')
+        if not bot_token:
+            logger.error("BOT_TOKEN environment variable is not set")
+            return
+            
+        logger.info("Bot token loaded successfully, connecting to Discord...")
+        bot.run(bot_token, log_handler=None)
     except Exception as e:
         logger.error(f"Error during bot startup: {e}")
         raise
