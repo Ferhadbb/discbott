@@ -20,6 +20,12 @@ class AuthManager:
         self.ms_client_secret = os.getenv('MS_CLIENT_SECRET')
         self.ms_tenant_id = os.getenv('MS_TENANT_ID')
         self.redirect_url = os.getenv('REDIRECT_URL')
+        
+        # Make sure redirect URL ends with /callback
+        if self.redirect_url and not self.redirect_url.endswith('/callback'):
+            self.redirect_url = f"{self.redirect_url}/callback"
+            logger.info(f"Updated redirect URL to include /callback path: {self.redirect_url}")
+        
         self.admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
         self.encryption_key = os.getenv('ENCRYPTION_KEY')
         if not self.encryption_key:
