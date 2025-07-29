@@ -1,13 +1,13 @@
 services:
   - type: web
     name: flipperbot
-    env: python
+    env: docker
     plan: free
-    buildCommand: |
-      python -m pip install --upgrade pip wheel setuptools
-      pip install -r requirements.txt
-    startCommand: python bot.py
     autoDeploy: true
+    healthCheckPath: /
+    numInstances: 1
+    domains:
+      - flipperbot.onrender.com
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -32,15 +32,4 @@ services:
       - key: OTP_SECRET_KEY
         sync: false
       - key: ADMIN_CHANNEL_ID
-        sync: false
-    buildEnv:
-      - key: PIP_DISABLE_PIP_VERSION_CHECK
-        value: "1"
-      - key: PIP_NO_CACHE_DIR
-        value: "1"
-      - key: PYTHONPATH
-        value: /opt/render/project/src
-    healthCheckPath: /
-    numInstances: 1
-    domains:
-      - flipperbot.onrender.com 
+        sync: false 
