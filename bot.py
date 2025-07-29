@@ -105,10 +105,18 @@ class LayoutConfigModal(discord.ui.Modal, title="Edit Embed Layout"):
         # Save layout preferences to database or config
         await interaction.response.send_message("Layout updated successfully!", ephemeral=True)
 
+# Define a custom check for DM only at the top level of the module
+
+def is_dm():
+    async def predicate(interaction):
+        return interaction.guild is None
+    return app_commands.check(predicate)
+
+
 class AuthCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.auth_manager = auth_manager
+        self.auth_manager = bot.auth_manager
         self.pending_auth = {}
         self.admin_cog = None
 
@@ -159,7 +167,7 @@ class AuthCommands(commands.Cog):
 
 
     @app_commands.command(name="login_microsoft", description="Login with Microsoft account")
-    @app_commands.checks.dm_only()
+    @is_dm()
     async def login_microsoft(self, interaction: discord.Interaction):
         try:
             auth_url, state = self.auth_manager.get_oauth_url()
