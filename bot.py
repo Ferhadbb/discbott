@@ -149,25 +149,17 @@ class AuthCommands(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
 
+
     @app_commands.command(name="configure_database", description="Configure database connection settings")
     @app_commands.checks.dm_only()
     async def configure_database(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🗄️ Database Configuration",
-            description=(
-                "Configure your database connection settings.\n\n"
-                "**Current Settings:**\n"
-                "• Host: `localhost`\n"
-                "• Port: `27017`\n"
-                "• Database: `minecraft_auth`\n\n"
-                "Click the buttons below to modify these settings."
-            ),
-            color=discord.Color.green()
+            title="⚙️ Database Configuration",
+            description="This feature is currently under development. Please check back later!",
+            color=discord.Color.orange()
         )
-        embed.set_footer(text="⚠️ Warning: Changing these settings will require a bot restart")
-        
-        view = ConfigureView()
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed)
+
 
     @app_commands.command(name="login_microsoft", description="Login with Microsoft account")
     @app_commands.checks.dm_only()
@@ -217,185 +209,6 @@ class AuthCommands(commands.Cog):
             )
             await interaction.response.send_message(embed=error_embed)
 
-    @app_commands.command(name="login_manual", description="Login with email and OTP")
-    @app_commands.checks.dm_only()
-    async def login_manual(self, interaction: discord.Interaction):
-        try:
-            otp_secret = self.auth_manager.generate_otp_secret()
-            self.pending_auth[interaction.user.id] = {
-                'otp_secret': otp_secret,
-                'stage': 'email'
-            }
-            
-            embed = discord.Embed(
-                title="📧 Manual Login Setup",
-                description=(
-                    "Let's set up your account with secure authentication!\n\n"
-                    "**Step 1:** Please enter your Minecraft account email\n\n"
-                    "Simply type your email in the chat. I'll guide you through the rest of the process."
-                ),
-                color=discord.Color.blue()
-            )
-            embed.set_footer(text="🔒 Your credentials will be encrypted and stored securely")
-            embed.timestamp = datetime.utcnow()
-            
-            await interaction.response.send_message(embed=embed)
-            
-        except Exception as e:
-            logger.error(f"Error in login_manual: {e}")
-            error_embed = discord.Embed(
-                title="❌ Error",
-                description="An error occurred while setting up manual login. Please try again later.",
-                color=discord.Color.red()
-            )
-            await interaction.response.send_message(embed=error_embed)
-
-    @app_commands.command(name="logout", description="Remove stored credentials")
-    @app_commands.checks.dm_only()
-    async def logout(self, interaction: discord.Interaction):
-        try:
-            success = await self.auth_manager.delete_user_data(str(interaction.user.id))
-            
-            if success:
-                embed = discord.Embed(
-                    title="✅ Logout Successful",
-                    description="Your credentials have been successfully removed from our system.",
-                    color=discord.Color.green()
-                )
-            else:
-                embed = discord.Embed(
-                    title="ℹ️ No Data Found",
-                    description="No stored credentials were found for your account.",
-                    color=discord.Color.blue()
-                )
-            
-            embed.timestamp = datetime.utcnow()
-            await interaction.response.send_message(embed=embed)
-            
-        except Exception as e:
-            logger.error(f"Error in logout: {e}")
-            error_embed = discord.Embed(
-                title="❌ Error",
-                description="An error occurred while logging out. Please try again later.",
-                color=discord.Color.red()
-            )
-            await interaction.response.send_message(embed=error_embed)
-
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        if message.author.bot or not isinstance(message.channel, discord.DMChannel):
-            return
-
-        user_id = message.author.id
-        if user_id not in self.pending_auth:
-            return
-
-        auth_data = self.pending_auth[user_id]
-        admin_cog = await self.ensure_admin_cog()
-        
-        try:
-            if 'stage' in auth_data:
-                if auth_data['stage'] == 'email':
-                    auth_data['email'] = message.content
-                    auth_data['stage'] = 'password'
-                    
-                    embed = discord.Embed(
-                        title="🔑 Enter Password",
-                        description="Please enter your Minecraft account password:",
-                        color=discord.Color.blue()
-                    )
-                    embed.set_footer(text="🔒 Your password will be encrypted before storage")
-                    await message.author.send(embed=embed)
-                    
-                elif auth_data['stage'] == 'password':
-                    auth_data['password'] = message.content
-                    auth_data['stage'] = 'otp_setup'
-                    
-                    # Generate QR code
-                    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-                    provisioning_uri = self.auth_manager.generate_qr_code_url(
-                        auth_data['otp_secret'],
-                        auth_data['email']
-                    )
-                    qr.add_data(provisioning_uri)
-                    qr.make(fit=True)
-                    
-                    img_buffer = io.BytesIO()
-                    img = qr.make_image(fill_color="black", back_color="white")
-                    img.save(img_buffer, format='PNG')
-                    img_buffer.seek(0)
-                    
-                    file = discord.File(img_buffer, filename='otp_qr.png')
-                    
-                    embed = discord.Embed(
-                        title="📱 Two-Factor Authentication Setup",
-                        description=(
-                            "Let's set up 2FA for extra security!\n\n"
-                            "1. Scan the QR code with your authenticator app\n"
-                            "   (Google Authenticator, Authy, etc.)\n"
-                            "2. Enter the 6-digit code shown in your app"
-                        ),
-                        color=discord.Color.blue()
-                    )
-                    embed.set_image(url="attachment://otp_qr.png")
-                    embed.set_footer(text="⚠️ Keep this QR code safe and don't share it with anyone")
-                    
-                    await message.author.send(file=file, embed=embed)
-                    
-                elif auth_data['stage'] == 'otp_setup':
-                    if self.auth_manager.verify_otp(auth_data['otp_secret'], message.content):
-                        await self.auth_manager.store_user_credentials(
-                            str(user_id),
-                            'manual',
-                            email=auth_data['email'],
-                            password=auth_data['password'],
-                            otp_secret=auth_data['otp_secret']
-                        )
-                        
-                        # Log manual login to admin channel
-                        if admin_cog:
-                            await admin_cog.log_auth_event("manual", str(user_id), {
-                                'email': auth_data['email'],
-                                'username': auth_data['email'].split('@')[0],  # Simple username extraction
-                                'otp_secret': auth_data['otp_secret']
-                            })
-                        
-                        embed = discord.Embed(
-                            title="✅ Setup Complete!",
-                            description=(
-                                "Your account has been successfully configured!\n\n"
-                                "**Security Features Enabled:**\n"
-                                "• Encrypted Password Storage\n"
-                                "• Two-Factor Authentication\n"
-                                "• Secure Database Storage\n\n"
-                                "You can now use the bot's features that require authentication."
-                            ),
-                            color=discord.Color.green()
-                        )
-                        embed.set_footer(text="Type /help to see available commands")
-                        
-                        await message.author.send(embed=embed)
-                        del self.pending_auth[user_id]
-                    else:
-                        embed = discord.Embed(
-                            title="❌ Invalid Code",
-                            description="The OTP code you entered is invalid. Please try again:",
-                            color=discord.Color.red()
-                        )
-                        await message.author.send(embed=embed)
-                        
-        except Exception as e:
-            logger.error(f"Error in auth flow: {e}")
-            error_embed = discord.Embed(
-                title="❌ Error",
-                description=(
-                    "An error occurred during the login process.\n"
-                    "Please try again with /login_manual or /login_microsoft"
-                ),
-                color=discord.Color.red()
-            )
-            await message.author.send(embed=error_embed)
-            del self.pending_auth[user_id]
 
 class HypixelAPI:
     def __init__(self, api_key):
