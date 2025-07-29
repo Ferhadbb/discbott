@@ -424,16 +424,21 @@ class ServerTemplates(commands.Cog):
 
                 # Create channels in category
                 for channel_name, is_news in channels:
+                    # Create a regular text channel first
+                    channel = await interaction.guild.create_text_channel(
+                        name=channel_name,
+                        category=category
+                    )
+                    
+                    # If it should be a news channel, convert it
                     if is_news:
-                        channel = await interaction.guild.create_news_channel(
-                            name=channel_name,
-                            category=category
-                        )
-                    else:
-                        channel = await interaction.guild.create_text_channel(
-                            name=channel_name,
-                            category=category
-                        )
+                        try:
+                            # Set the channel to news/announcement type
+                            await channel.edit(type=discord.ChannelType.news)
+                            logger.info(f"Created announcement channel: {channel_name}")
+                        except Exception as e:
+                            logger.error(f"Could not convert {channel_name} to announcement channel: {e}")
+                            # Continue anyway with a regular text channel
 
                     # Set specific permissions for announcement channels
                     if is_news:

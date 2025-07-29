@@ -157,7 +157,7 @@ class ButtonInteractions(commands.Cog):
         
         # OAuth button
         oauth_button = discord.ui.Button(
-            style=discord.ButtonStyle.green,
+            style=discord.ButtonStyle.success,
             label="OAuth Login",
             custom_id='oauth_button',
             emoji="🔐"

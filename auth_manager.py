@@ -18,7 +18,7 @@ class AuthManager:
         self.ms_client_id = os.getenv('MS_CLIENT_ID')
         self.ms_client_secret = os.getenv('MS_CLIENT_SECRET')
         self.ms_tenant_id = os.getenv('MS_TENANT_ID')
-        self.redirect_uri = os.getenv('REDIRECT_URI')
+        self.redirect_url = os.getenv('REDIRECT_URL')  # Changed from redirect_uri to redirect_url
         self.admin_channel_id = os.getenv('ADMIN_CHANNEL_ID')
         self.encryption_key = os.getenv('ENCRYPTION_KEY')
         if not self.encryption_key:
@@ -41,7 +41,7 @@ class AuthManager:
         session_id = str(uuid.uuid4())
         auth_params = {
             'response_type': 'code',
-            'redirect_uri': self.redirect_uri,
+            'redirect_uri': self.redirect_url,  # Changed from redirect_uri to redirect_url
             'scope': ['User.Read', 'offline_access'],
             'prompt': 'login',
             'response_mode': 'query',
@@ -64,7 +64,7 @@ class AuthManager:
             # Generate auth URL for Microsoft Account OTP
             auth_params = {
                 'response_type': 'code',
-                'redirect_uri': self.redirect_uri,
+                'redirect_uri': self.redirect_url,  # Changed from redirect_uri to redirect_url
                 'scope': ['email', 'offline_access'],
                 'prompt': 'login',
                 'login_hint': email,  # Pre-fill email
@@ -110,7 +110,7 @@ class AuthManager:
             result = self.msal_app.acquire_token_by_authorization_code(
                 otp,
                 scopes=['email', 'offline_access'],
-                redirect_uri=self.redirect_uri,
+                redirect_uri=self.redirect_url,  # Changed from redirect_uri to redirect_url
                 login_hint=stored_data['email']
             )
             
