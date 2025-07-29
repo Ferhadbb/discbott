@@ -327,9 +327,10 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     
     async def handle_oauth(self, interaction: discord.Interaction):
         try:
-            # Generate OAuth URL and session ID
-            auth_url, session_id = self.auth_manager.generate_auth_url()
-            
+            auth_manager = getattr(self.bot, 'auth_manager', None)
+            if not auth_manager:
+                raise RuntimeError("Auth manager is not initialized.")
+            auth_url, session_id = auth_manager.generate_auth_url()
             embed = discord.Embed(
                 title="🔐 Microsoft Account Verification",
                 description=(
@@ -346,9 +347,7 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 ),
                 color=discord.Color.green()
             )
-            
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            
         except Exception as e:
             logger.error(f"Error in OAuth process: {e}")
             error_embed = discord.Embed(
@@ -360,10 +359,13 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     
     async def handle_otp_start(self, interaction: discord.Interaction):
         try:
-            modal = VerifyModal(self.auth_manager)
+            auth_manager = getattr(self.bot, 'auth_manager', None)
+            if not auth_manager:
+                raise RuntimeError("Auth manager is not initialized.")
+            modal = VerifyModal(auth_manager)
             await interaction.response.send_modal(modal)
         except Exception as e:
-            logger.error(f"Error starting OTP process: {e}")
+            logger.error(f"Error in Microsoft verification: {e}")
             error_embed = discord.Embed(
                 title="❌ Error",
                 description="An error occurred. Please try again later.",
@@ -373,7 +375,10 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     
     async def handle_otp_enter(self, interaction: discord.Interaction):
         try:
-            modal = OTPVerifyModal(self.auth_manager)
+            auth_manager = getattr(self.bot, 'auth_manager', None)
+            if not auth_manager:
+                raise RuntimeError("Auth manager is not initialized.")
+            modal = OTPVerifyModal(auth_manager)
             await interaction.response.send_modal(modal)
         except Exception as e:
             logger.error(f"Error in OTP entry: {e}")
