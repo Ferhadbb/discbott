@@ -8,4 +8,4 @@ Flask==3.0.0
 msal==1.25.0
 requests==2.31.0
 cryptography==41.0.7
-Pillow-SIMD==9.0.0  # Using SIMD version which has better pre-built wheels 
+Pillow-SIMD==9.5.0.post2  # Latest compatible version 
