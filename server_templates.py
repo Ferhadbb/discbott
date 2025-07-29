@@ -358,7 +358,13 @@ class ServerTemplates(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        await interaction.response.defer()
+        # Try to defer, but handle the case where the interaction might have timed out
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # Interaction already timed out, we can't respond to it
+            logger.error("Interaction timed out before we could defer it")
+            return
 
         template_data = self.templates.get(template)
         if not template_data:
@@ -433,8 +439,9 @@ class ServerTemplates(commands.Cog):
                     # If it should be a news channel, convert it
                     if is_news:
                         try:
-                            # Set the channel to news/announcement type
-                            await channel.edit(type=discord.ChannelType.news)
+                            # Set the channel to news/announcement type using raw value
+                            # 5 is the integer value for news channels in Discord API
+                            await channel.edit(type=5)  # 5 = news channel type
                             logger.info(f"Created announcement channel: {channel_name}")
                         except Exception as e:
                             logger.error(f"Could not convert {channel_name} to announcement channel: {e}")
