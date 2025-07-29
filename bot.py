@@ -32,15 +32,26 @@ auth_manager = None  # Will be initialized after bot is ready
 
 # Load cogs
 async def load_cogs():
-    global auth_manager
-    auth_manager = AuthManager()
-    auth_manager.bot = bot  # Set bot instance for admin channel access
-    
-    await bot.load_extension('admin_commands')
-    await bot.load_extension('embed_builder')
-    await bot.load_extension('monitoring')  # Add monitoring cog
-    await bot.load_extension('button_interactions')  # Add button interactions cog
-    await bot.load_extension('server_templates')  # Add server templates cog
+    # Auth manager is now initialized in on_ready
+    try:
+        logger.info("Loading admin_commands cog...")
+        await bot.load_extension('admin_commands')
+        
+        logger.info("Loading embed_builder cog...")
+        await bot.load_extension('embed_builder')
+        
+        logger.info("Loading monitoring cog...")
+        await bot.load_extension('monitoring')
+        
+        logger.info("Loading button_interactions cog...")
+        await bot.load_extension('button_interactions')
+        
+        logger.info("Loading server_templates cog...")
+        await bot.load_extension('server_templates')
+        
+        logger.info("All cogs loaded successfully!")
+    except Exception as e:
+        logger.error(f"Error loading cogs: {e}")
 
 class ConfigureView(discord.ui.View):
     def __init__(self):
@@ -399,6 +410,12 @@ async def on_ready():
     )
     await bot.change_presence(activity=activity)
     
+    # Initialize auth manager
+    global auth_manager
+    auth_manager = AuthManager()
+    bot.auth_manager = auth_manager  # Set auth_manager on the bot object
+    auth_manager.bot = bot  # Set bot instance for admin channel access
+    
     # Load cogs
     await load_cogs()
     await bot.add_cog(AuthCommands(bot))
@@ -406,10 +423,22 @@ async def on_ready():
     
     # Sync slash commands
     try:
+        logger.info("Syncing slash commands...")
+        # First try global sync
         synced = await bot.tree.sync()
-        logger.info(f"Synced {len(synced)} command(s)")
+        logger.info(f"Synced {len(synced)} command(s) globally")
+        
+        # Then sync to each guild for immediate updates
+        for guild in bot.guilds:
+            try:
+                guild_synced = await bot.tree.sync(guild=guild)
+                logger.info(f"Synced {len(guild_synced)} command(s) to guild {guild.name}")
+            except Exception as guild_error:
+                logger.error(f"Error syncing commands to guild {guild.name}: {guild_error}")
     except Exception as e:
         logger.error(f"Error syncing commands: {e}")
+        logger.error(f"Error details: {type(e).__name__}: {str(e)}")
+        # Try to continue even if sync fails
 
 def main():
     logger.info("Starting bot initialization...")
