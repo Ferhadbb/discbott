@@ -1,88 +1,81 @@
-# ======================
-# Bot Configuration File
-# ======================
-
-# Copy this file to config.yaml and fill in your values
-# DO NOT edit this example file directly
-
 # Bot Configuration
 bot:
-  token: "your_bot_token_here"  # Get from Discord Developer Portal
+  token: "your_bot_token_here"  # Discord bot token
   prefix: "!"  # Default prefix for legacy commands
   status: "Watching for flips"  # Bot's status message
   activity_type: "watching"  # playing, watching, listening, competing
 
 # Access Control
 access:
-  owner_id: "your_discord_id_here"  # Your Discord user ID
-  admin_ids:  # List of admin Discord IDs who can use admin commands
+  owner_id: "your_discord_id_here"  # Bot owner's Discord ID
+  admin_ids:  # List of admin Discord IDs
     - "admin1_id_here"
     - "admin2_id_here"
   blacklisted_users: []  # Users who can't use the bot
-  whitelist_enabled: false  # Set to true to enable whitelist mode
-  whitelisted_users: []  # Only these users can use the bot when whitelist is enabled
+  whitelist_enabled: false  # If true, only whitelisted users can use the bot
+  whitelisted_users: []  # Users who can use the bot when whitelist is enabled
 
 # Channel Configuration
 channels:
   notifications:
-    flip_alerts: "channel_id_here"  # Where flip notifications are sent
-    announcements: "channel_id_here"  # Bot announcements channel
-    logs: "channel_id_here"  # General logging channel
+    flip_alerts: "channel_id_here"  # Channel for flip notifications
+    announcements: "channel_id_here"  # Channel for bot announcements
+    logs: "channel_id_here"  # Channel for logging bot actions
+    status: "channel_id_here"  # Channel for status updates
   admin:
-    commands: "channel_id_here"  # Admin-only commands channel
-    logs: "channel_id_here"  # Admin action logs
+    commands: "channel_id_here"  # Channel for admin commands
+    logs: "channel_id_here"  # Channel for admin logs
 
-# API Keys and External Services
+# Button Customization
+buttons:
+  verify_label: "Verify"  # Custom label for verify button
+  qa_label: "Q&A"  # Custom label for Q&A button
+  verify_emoji: "✅"  # Custom emoji for verify button
+  qa_emoji: "❓"  # Custom emoji for Q&A button
+  verify_style: "green"  # Button style: green, blue, red, grey
+  qa_style: "blurple"  # Button style: green, blue, red, grey
+
+# API Keys
 api:
-  hypixel: "your_hypixel_api_key_here"  # Get with /api new on Hypixel
-  microsoft:  # For Microsoft OAuth login
+  hypixel: "your_hypixel_api_key_here"
+  microsoft:
     client_id: "your_microsoft_client_id_here"
     client_secret: "your_microsoft_client_secret_here"
     redirect_uri: "http://localhost:8000/callback"
 
-# Database Settings
-database:
-  mongodb:
-    uri: "mongodb://localhost:27017/"  # MongoDB connection string
-    database: "minecraft_auth"  # Database name
-    collections:  # Collection names
-      users: "users"
-      flips: "flips"
-      settings: "settings"
-
-# Discord Webhooks
+# Webhook URLs
 webhooks:
-  admin: "your_admin_webhook_url_here"  # For admin notifications
-  notifications: "your_notifications_webhook_url_here"  # For general notifications
+  admin: "your_admin_webhook_url_here"
+  notifications: "your_notifications_webhook_url_here"
 
-# Flip Detection Configuration
+# Flip Detection Settings
 flip_settings:
-  check_interval: 30  # How often to check auctions (seconds)
-  min_profit: 100000  # Minimum profit to notify (coins)
+  check_interval: 30  # Seconds between auction checks
+  min_profit: 100000  # Minimum profit in coins
   min_profit_percentage: 20  # Minimum profit percentage
   max_price: 1000000000  # Maximum item price to consider
   blacklisted_items: []  # Items to ignore
-  whitelist_items: []  # Only check these items if list is not empty
+  whitelist_items: []  # Only check these items if not empty
 
-# Embed Appearance Settings
+# Embed Settings
 embeds:
-  colors:  # Hex colors for different message types
+  colors:
     success: 0x00ff00  # Green
     error: 0xff0000  # Red
     info: 0x0000ff  # Blue
     flip: 0xffa500  # Orange
-  show_timestamps: true  # Show timestamps on embeds
-  show_footers: true  # Show footers on embeds
+  show_timestamps: true
+  show_footers: true
 
 # Logging Configuration
 logging:
   level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: "bot.log"  # Log file name
+  file: "bot.log"
 
 # Security Settings
 security:
-  encryption_key: "your_encryption_key_here"  # Will be auto-generated if not set
-  max_login_attempts: 3  # Maximum failed login attempts
-  session_timeout: 3600  # Session timeout in seconds
+  encryption_key: "your_encryption_key_here"  # Will be auto-generated if not provided
+  max_login_attempts: 3
+  session_timeout: 3600  # Seconds
   require_2fa: true 

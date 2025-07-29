@@ -1,18 +1,39 @@
 services:
-  - type: web  # Changed from worker to web to enable HTTP requests
-    name: discord-bot
+  - type: web
+    name: flipperbot
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.7
+      - key: BOT_TOKEN
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: HYPIXEL_API_KEY
+        sync: false
+      - key: ADMIN_WEBHOOK
+        sync: false
+      - key: NOTIFICATIONS_WEBHOOK
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      - key: MS_CLIENT_SECRET
+        sync: false
+      - key: MS_TENANT_ID
+        sync: false
+      - key: REDIRECT_URI
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: OTP_SECRET_KEY
+        sync: false
     healthCheckPath: /
     numInstances: 1
     domains:
-      - discord-bot.onrender.com  # Replace with your actual Render domain
-    disk:
-      name: tmp
-      mountPath: /tmp
-      sizeGB: 1 
+      - flipperbot.onrender.com 

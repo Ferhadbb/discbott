@@ -1,153 +1,119 @@
-# Hypixel Skyblock Flipper Bot
+# FlipperBot
 
-A Discord bot that monitors Hypixel Skyblock's auction house and bazaar for profitable flipping opportunities.
+A powerful Discord bot for Hypixel Skyblock flipping with advanced features and server management capabilities.
 
 ## Features
 
-- Secure authentication methods:
-  - Microsoft OAuth integration for seamless login
-  - Manual login with OTP (Two-Factor Authentication) support
-  - Encrypted credential storage
-- Real-time monitoring of Hypixel Skyblock auctions
-- Automatic flip detection based on customizable criteria
-- Discord notifications for profitable opportunities
-- Easy setup and configuration
-- Detailed profit calculations and statistics
+### Core Features
+- Automatic flip detection
+- Real-time profit calculations
+- Custom flip alerts
+- User authentication
+- Admin controls
 
-## Setup Instructions
+### New Features
+- **Button-Based Interaction System**
+  - Automatic role assignment for new members
+  - Customizable verification system
+  - Interactive Q&A system
+  - Configurable button styles and labels
 
-1. Clone this repository
-2. Install required dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- **Server Templates**
+  - Pre-made server structures with `/template_use` command
+  - Multiple template options:
+    - 🏰 Dungeon Server
+    - 🌾 Farming Server
+    - 🌟 General Gaming Server
+  - Beautiful channel organization with emojis
+  - Proper permission setup
 
-3. Set up MongoDB:
-   - Install MongoDB if not already installed
-   - Start MongoDB service
-   - Default connection URL: mongodb://localhost:27017/
+## Setup
 
-4. Configure the bot:
-   - Copy `config.example.yaml` to `config.yaml`
-   - Edit `config.yaml` with your settings:
-     ```yaml
-     bot:
-       token: "your_bot_token_here"
-       # ... other bot settings
-     
-     access:
-       owner_id: "your_discord_id_here"
-       admin_ids:
-         - "admin1_id_here"
-       # ... other access settings
-     
-     channels:
-       notifications:
-         flip_alerts: "channel_id_here"
-       # ... other channel settings
-     ```
+1. Clone the repository
+```bash
+git clone https://github.com/yourusername/flipperbot.git
+cd flipperbot
+```
 
-5. Get required API keys and credentials:
-   - Discord Bot Token: Create a bot at [Discord Developer Portal](https://discord.com/developers/applications)
-   - Hypixel API Key: Get it by connecting to Hypixel MC server and typing `/api new`
-   - Microsoft OAuth credentials: Register an application at [Azure Portal](https://portal.azure.com)
-     - Add `http://localhost:8000/callback` to the redirect URIs
-     - Copy the client ID and generate a client secret
+2. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-6. Run the bot:
-   ```bash
-   python bot.py
-   ```
+3. Configure the bot
+- Copy `config.example.yaml` to `config.yaml`
+- Fill in your bot token and other required values
+- Customize button labels and styles if desired
 
-## Configuration Guide
+## Configuration
 
-The bot uses a YAML configuration file for all settings. The configuration is divided into several sections:
-
-### Bot Configuration
+### Button Customization
 ```yaml
-bot:
-  token: "your_bot_token_here"  # Discord bot token
-  prefix: "!"  # Command prefix
-  status: "Watching for flips"  # Bot status
+buttons:
+  verify_label: "Verify"  # Custom label for verify button
+  qa_label: "Q&A"  # Custom label for Q&A button
+  verify_emoji: "✅"  # Custom emoji for verify button
+  qa_emoji: "❓"  # Custom emoji for Q&A button
+  verify_style: "green"  # Button style: green, blue, red, grey
+  qa_style: "blurple"  # Button style: green, blue, red, grey
 ```
 
-### Access Control
-```yaml
-access:
-  owner_id: "your_discord_id_here"  # Bot owner
-  admin_ids:  # Admin users
-    - "admin1_id_here"
-  whitelist_enabled: false  # Enable whitelist mode
-```
+### Server Templates
+Use `/template_use` command to create pre-configured server structures:
 
-### Channel Configuration
-```yaml
-channels:
-  notifications:
-    flip_alerts: "channel_id_here"  # Flip notifications
-    announcements: "channel_id_here"  # Announcements
-```
+1. 🏰 Dungeon Server
+   - Main announcements
+   - Chatting channels
+   - Dungeon-specific channels
+   - Gaming coordination
 
-### Flip Settings
-```yaml
-flip_settings:
-  check_interval: 30  # Seconds between checks
-  min_profit: 100000  # Minimum profit (coins)
-  min_profit_percentage: 20  # Minimum profit %
-```
+2. 🌾 Farming Server
+   - Main announcements
+   - Chatting channels
+   - Farming guides and tips
+   - Competition tracking
 
-### Security Settings
-```yaml
-security:
-  encryption_key: "auto_generated"  # For credential encryption
-  require_2fa: true  # Require 2FA for manual login
-```
+3. 🌟 General Gaming Server
+   - Main announcements
+   - Community channels
+   - Gaming coordination
+   - Bot commands
 
-See `config.example.yaml` for a complete list of configuration options with detailed comments.
+## Environment Variables
 
-## Authentication Commands
+Required environment variables:
+- `BOT_TOKEN`: Your Discord bot token
+- `OWNER_ID`: Your Discord user ID
+- `HYPIXEL_API_KEY`: Your Hypixel API key
+- `MS_CLIENT_ID`: Microsoft OAuth client ID
+- `MS_CLIENT_SECRET`: Microsoft OAuth client secret
+- `ADMIN_WEBHOOK`: Admin notifications webhook URL
+- `NOTIFICATIONS_WEBHOOK`: General notifications webhook URL
 
-The bot supports two authentication methods:
+## Commands
 
-### Microsoft OAuth Login
-```
-/login_microsoft
-```
-- Initiates Microsoft account login flow
-- Sends you a link to authenticate with your Microsoft account
-- Securely stores the OAuth tokens
+### Admin Commands
+- `/template_use` - Apply a server template
+- `/config` - Configure bot settings
+- `/blacklist` - Manage blacklisted users
+- `/whitelist` - Manage whitelisted users
 
-### Manual Login with OTP
-```
-/login_manual
-```
-- Starts the manual login process
-- Asks for your Minecraft email and password
-- Sets up Two-Factor Authentication using any authenticator app
-- Generates a QR code for easy OTP setup
-- Securely stores your encrypted credentials
-
-### Other Commands
-```
-/logout
-```
-- Removes your stored credentials from the bot
-
-## Security Features
-
-- All sensitive data is encrypted using Fernet symmetric encryption
-- Credentials are stored securely in MongoDB
-- OTP (Two-Factor Authentication) for additional security
-- DM-only authentication commands
-- Option to delete stored credentials at any time
+### User Commands
+- Verify button - Start verification process
+- Q&A button - Access help and information
 
 ## Contributing
 
-Feel free to submit issues and enhancement requests!
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## Security Note
+## License
 
-- Never share your API keys, tokens, or credentials with anyone
-- Keep your `config.yaml` file secure and never commit it to version control
-- The bot will only ask for credentials through DM channels
-- Always verify the bot's identity before entering sensitive information 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For support, join our Discord server or open an issue on GitHub. 

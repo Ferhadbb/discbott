@@ -1,131 +1,181 @@
 import os
-import json
-import base64
-import secrets
-from datetime import datetime, timedelta
+import jwt
+import time
 import pyotp
+import base64
+import logging
+import requests
+from typing import Optional, Dict, Tuple
+from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
-from msal import ConfidentialClientApplication
-from dotenv import load_dotenv
+from config_manager import ConfigManager
+import discord
 
-load_dotenv()
+logger = logging.getLogger('auth_manager')
+config = ConfigManager()
 
 class AuthManager:
     def __init__(self):
-        # Initialize encryption key
-        self.encryption_key = os.getenv('ENCRYPTION_KEY') or Fernet.generate_key()
+        self.ms_client_id = os.getenv('MS_CLIENT_ID')
+        self.ms_client_secret = os.getenv('MS_CLIENT_SECRET')
+        self.ms_tenant_id = os.getenv('MS_TENANT_ID')
+        self.redirect_uri = os.getenv('REDIRECT_URI')
+        self.jwt_secret = os.getenv('JWT_SECRET_KEY')
+        self.encryption_key = os.getenv('ENCRYPTION_KEY')
+        if not self.encryption_key:
+            self.encryption_key = Fernet.generate_key()
+            logger.info("Generated new encryption key")
         self.cipher_suite = Fernet(self.encryption_key)
+        self.otp_secret = os.getenv('OTP_SECRET_KEY')
+        if not self.otp_secret:
+            self.otp_secret = base64.b32encode(os.urandom(20)).decode('utf-8')
+            logger.info("Generated new OTP secret")
         
-        # In-memory storage
-        self.users = {}
-        
-        # Microsoft OAuth setup
-        self.ms_client = ConfidentialClientApplication(
-            os.getenv('MICROSOFT_CLIENT_ID'),
-            authority="https://login.microsoftonline.com/consumers",
-            client_credential=os.getenv('MICROSOFT_CLIENT_SECRET')
-        )
-        
-        # OAuth configuration
-        self.redirect_uri = os.getenv('REDIRECT_URI', 'http://localhost:8000/callback')
-        self.scopes = ["XboxLive.signin"]
-        
-    def encrypt_data(self, data: str) -> str:
-        """Encrypt sensitive data"""
-        return self.cipher_suite.encrypt(data.encode()).decode()
-    
-    def decrypt_data(self, encrypted_data: str) -> str:
-        """Decrypt sensitive data"""
-        return self.cipher_suite.decrypt(encrypted_data.encode()).decode()
-    
-    def generate_otp_secret(self) -> str:
-        """Generate a new OTP secret"""
-        return pyotp.random_base32()
-    
-    def verify_otp(self, secret: str, otp: str) -> bool:
-        """Verify OTP code"""
-        totp = pyotp.TOTP(secret)
-        return totp.verify(otp)
-    
-    def get_oauth_url(self, state: str = None) -> str:
-        """Get Microsoft OAuth URL"""
-        if not state:
-            state = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
-        auth_url = self.ms_client.get_authorization_request_url(
-            scopes=self.scopes,
-            state=state,
-            redirect_uri=self.redirect_uri
-        )
-        return auth_url, state
-    
-    async def process_oauth_callback(self, code: str) -> dict:
-        """Process OAuth callback and get Microsoft account info"""
-        result = await self.ms_client.acquire_token_by_authorization_code(
-            code,
-            scopes=self.scopes,
-            redirect_uri=self.redirect_uri
-        )
-        return result
-    
-    async def store_user_credentials(self, discord_id: str, auth_type: str, **credentials):
-        """Store user credentials in memory"""
-        # Encrypt sensitive data
-        encrypted_data = {}
-        if auth_type == 'microsoft':
-            encrypted_data = {
-                'access_token': self.encrypt_data(credentials['access_token']),
-                'refresh_token': self.encrypt_data(credentials['refresh_token'])
-            }
-        else:  # manual login
-            encrypted_data = {
-                'email': self.encrypt_data(credentials['email']),
-                'password': self.encrypt_data(credentials['password']),
-                'otp_secret': credentials['otp_secret']
-            }
-        
-        # Store in memory
-        self.users[discord_id] = {
-            'auth_type': auth_type,
-            'credentials': encrypted_data,
-            'created_at': datetime.utcnow(),
-            'last_updated': datetime.utcnow()
+    def generate_oauth_url(self) -> str:
+        """Generate Microsoft OAuth URL"""
+        params = {
+            'client_id': self.ms_client_id,
+            'response_type': 'code',
+            'redirect_uri': self.redirect_uri,
+            'response_mode': 'query',
+            'scope': 'offline_access User.Read',
+            'state': self._generate_state_token()
         }
         
-        return self.users[discord_id]
-    
-    async def get_user_credentials(self, discord_id: str) -> dict:
-        """Retrieve user credentials from memory"""
-        user = self.users.get(discord_id)
-        if not user:
-            return None
+        base_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize'
+        return f"{base_url}?{'&'.join(f'{k}={v}' for k, v in params.items())}"
+
+    async def handle_oauth_callback(self, code: str, state: str, member: discord.Member) -> Tuple[bool, str]:
+        """Handle OAuth callback and token exchange"""
+        if not self._verify_state_token(state):
+            return False, "Invalid state token"
             
-        # Decrypt sensitive data
-        decrypted_credentials = {}
-        if user['auth_type'] == 'microsoft':
-            decrypted_credentials = {
-                'access_token': self.decrypt_data(user['credentials']['access_token']),
-                'refresh_token': self.decrypt_data(user['credentials']['refresh_token'])
-            }
-        else:
-            decrypted_credentials = {
-                'email': self.decrypt_data(user['credentials']['email']),
-                'password': self.decrypt_data(user['credentials']['password']),
-                'otp_secret': user['credentials']['otp_secret']
-            }
-            
-        return {
-            'auth_type': user['auth_type'],
-            'credentials': decrypted_credentials
+        token_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token'
+        data = {
+            'client_id': self.ms_client_id,
+            'client_secret': self.ms_client_secret,
+            'code': code,
+            'redirect_uri': self.redirect_uri,
+            'grant_type': 'authorization_code'
         }
-    
-    async def delete_user_data(self, discord_id: str) -> bool:
-        """Delete user data from memory"""
-        if discord_id in self.users:
-            del self.users[discord_id]
+        
+        try:
+            response = requests.post(token_url, data=data)
+            tokens = response.json()
+            
+            if 'access_token' not in tokens:
+                return False, "Failed to get access token"
+                
+            # Store encrypted tokens
+            encrypted_tokens = self._encrypt_tokens(tokens)
+            
+            # Update roles
+            await self._update_member_roles(member)
+            
+            return True, encrypted_tokens
+            
+        except Exception as e:
+            logger.error(f"OAuth callback error: {e}")
+            return False, str(e)
+
+    def generate_otp_qr(self, user_id: str) -> str:
+        """Generate OTP QR code for user"""
+        totp = pyotp.TOTP(self.otp_secret)
+        provisioning_uri = totp.provisioning_uri(
+            name=f"FlipperBot_{user_id}",
+            issuer_name="FlipperBot"
+        )
+        return provisioning_uri
+
+    async def verify_otp(self, otp_code: str, member: discord.Member) -> bool:
+        """Verify OTP code and update roles"""
+        totp = pyotp.TOTP(self.otp_secret)
+        is_valid = totp.verify(otp_code)
+        
+        if is_valid:
+            await self._update_member_roles(member)
+            
+        return is_valid
+
+    async def _update_member_roles(self, member: discord.Member) -> None:
+        """Update member roles after successful verification"""
+        try:
+            # Remove non-verified role
+            non_verified_role = discord.utils.get(member.guild.roles, name="Non-Verified")
+            if non_verified_role and non_verified_role in member.roles:
+                await member.remove_roles(non_verified_role)
+            
+            # Add verified role
+            verified_role = discord.utils.get(member.guild.roles, name="Verified")
+            if verified_role and verified_role not in member.roles:
+                await member.add_roles(verified_role)
+                
+            # Update FlipperBot channel permissions
+            flipper_channel = discord.utils.get(member.guild.channels, name="flipperbot")
+            if flipper_channel:
+                await flipper_channel.set_permissions(member, read_messages=True, send_messages=True)
+                
+            logger.info(f"Updated roles for member {member.id}")
+            
+        except Exception as e:
+            logger.error(f"Error updating roles: {e}")
+            raise
+
+    def _generate_state_token(self) -> str:
+        """Generate state token for OAuth flow"""
+        payload = {
+            'exp': datetime.utcnow() + timedelta(minutes=10),
+            'iat': datetime.utcnow(),
+            'state': base64.b64encode(os.urandom(24)).decode('utf-8')
+        }
+        return jwt.encode(payload, self.jwt_secret, algorithm='HS256')
+
+    def _verify_state_token(self, token: str) -> bool:
+        """Verify state token from OAuth callback"""
+        try:
+            jwt.decode(token, self.jwt_secret, algorithms=['HS256'])
             return True
-        return False
-    
-    def generate_qr_code_url(self, secret: str, username: str) -> str:
-        """Generate QR code URL for OTP setup"""
-        totp = pyotp.TOTP(secret)
-        return totp.provisioning_uri(username, issuer_name="MC Flipper Bot") 
+        except:
+            return False
+
+    def _encrypt_tokens(self, tokens: Dict) -> str:
+        """Encrypt OAuth tokens"""
+        token_str = jwt.encode(tokens, self.jwt_secret, algorithm='HS256')
+        return self.cipher_suite.encrypt(token_str.encode()).decode()
+
+    def _decrypt_tokens(self, encrypted_tokens: str) -> Dict:
+        """Decrypt OAuth tokens"""
+        try:
+            token_str = self.cipher_suite.decrypt(encrypted_tokens.encode()).decode()
+            return jwt.decode(token_str, self.jwt_secret, algorithms=['HS256'])
+        except Exception as e:
+            logger.error(f"Token decryption error: {e}")
+            return None
+
+    async def refresh_oauth_token(self, encrypted_tokens: str) -> Tuple[bool, str]:
+        """Refresh OAuth access token"""
+        tokens = self._decrypt_tokens(encrypted_tokens)
+        if not tokens or 'refresh_token' not in tokens:
+            return False, "Invalid tokens"
+
+        token_url = f'https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token'
+        data = {
+            'client_id': self.ms_client_id,
+            'client_secret': self.ms_client_secret,
+            'refresh_token': tokens['refresh_token'],
+            'grant_type': 'refresh_token'
+        }
+
+        try:
+            response = requests.post(token_url, data=data)
+            new_tokens = response.json()
+            
+            if 'access_token' not in new_tokens:
+                return False, "Failed to refresh token"
+                
+            encrypted_tokens = self._encrypt_tokens(new_tokens)
+            return True, encrypted_tokens
+            
+        except Exception as e:
+            logger.error(f"Token refresh error: {e}")
+            return False, str(e) 

@@ -37,6 +37,8 @@ async def load_cogs():
     await bot.load_extension('admin_commands')
     await bot.load_extension('embed_builder')
     await bot.load_extension('monitoring')  # Add monitoring cog
+    await bot.load_extension('button_interactions')  # Add button interactions cog
+    await bot.load_extension('server_templates')  # Add server templates cog
 
 class ConfigureView(discord.ui.View):
     def __init__(self):
@@ -117,24 +119,27 @@ class AuthCommands(commands.Cog):
     @app_commands.command(name="start", description="Start using the Skyblock Flipper Bot")
     async def start(self, interaction: discord.Interaction):
         embed = discord.Embed(
-            title="🚀 Welcome to Skyblock Flipper Bot!",
+            title="🎮 Welcome to FlipperBot!",
             description=(
                 "I'm your personal Hypixel Skyblock flipping assistant! Here's how to get started:\n\n"
-                "1️⃣ **Authentication** - Choose your login method:\n"
-                "   • `/login_microsoft` - Login with Microsoft account\n"
-                "   • `/login_manual` - Login with email + OTP\n\n"
-                "2️⃣ **Configuration**:\n"
-                "   • `/configure_database` - Set up your database connection\n"
-                "   • `/configure_notifications` - Customize notifications\n"
-                "   • `/configure_filters` - Set up flip filters\n\n"
+                "1️⃣ **Server Setup**:\n"
+                "   • `/template_use` - Create a pre-configured server\n"
+                "   • Choose from: 🏰 Dungeon, 🌾 Farming, or 🌟 General templates\n\n"
+                "2️⃣ **Authentication**:\n"
+                "   • Use the 'Verify' button in the FlipperBot channel\n"
+                "   • Check the Q&A button for help and information\n\n"
                 "3️⃣ **Commands**:\n"
                 "   • `/help` - Show all available commands\n"
                 "   • `/status` - Check bot status\n"
-                "   • `/stats` - View your flipping statistics"
+                "   • `/stats` - View your flipping statistics\n\n"
+                "4️⃣ **Features**:\n"
+                "   • Automatic role assignment\n"
+                "   • Server templates with beautiful channels\n"
+                "   • Real-time flip notifications\n"
+                "   • Customizable buttons and interactions"
             ),
             color=discord.Color.blue()
         )
-        embed.set_thumbnail(url="https://i.imgur.com/your_bot_logo.png")  # Replace with your bot's logo
         embed.set_footer(text="Type /help for detailed information about each command")
         embed.timestamp = datetime.utcnow()
         
@@ -584,6 +589,32 @@ async def on_ready():
         logger.error(f"Error syncing commands: {e}")
 
 def main():
+    logger.info("Starting bot initialization...")
+    
+    # Load environment variables
+    load_dotenv()
+    
+    # Check required environment variables
+    required_env_vars = [
+        'BOT_TOKEN',
+        'OWNER_ID',
+        'HYPIXEL_API_KEY',
+        'MS_CLIENT_ID',
+        'MS_CLIENT_SECRET',
+        'MS_TENANT_ID',
+        'REDIRECT_URI',
+        'JWT_SECRET_KEY',
+        'ADMIN_WEBHOOK',
+        'NOTIFICATIONS_WEBHOOK'
+    ]
+    
+    missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+    if missing_vars:
+        logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+        logger.error("Please set these variables in your Render dashboard or .env file")
+        return
+
+    # Check configuration
     required_settings = [
         'bot.token',
         'api.hypixel',
@@ -594,13 +625,21 @@ def main():
     if missing:
         logger.error(f"Missing required configuration: {', '.join(missing)}")
         return
-    
-    # Start keep-alive server
-    keep_alive()
-    start_self_ping()
-    
-    # Start the bot
-    bot.run(config.get('bot.token'))
+
+    try:
+        # Start keep-alive server
+        logger.info("Starting keep-alive server...")
+        keep_alive()
+        start_self_ping()
+        
+        # Log successful initialization
+        logger.info("Initialization complete, starting bot...")
+        
+        # Start the bot
+        bot.run(config.get('bot.token'), log_handler=None)
+    except Exception as e:
+        logger.error(f"Error during bot startup: {e}")
+        raise
 
 if __name__ == "__main__":
     main() 

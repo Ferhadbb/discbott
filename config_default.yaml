@@ -1,14 +1,14 @@
 # Bot Configuration
 bot:
-  token: ${DISCORD_TOKEN}  # From environment variable
+  token: "${BOT_TOKEN}"
   prefix: "!"
   status: "Watching for flips"
   activity_type: "watching"
 
 # Access Control
 access:
-  owner_id: ${OWNER_ID}  # From environment variable
-  admin_ids: []  # Will be configured through bot commands
+  owner_id: "${OWNER_ID}"
+  admin_ids: []
   blacklisted_users: []
   whitelist_enabled: false
   whitelisted_users: []
@@ -16,7 +16,7 @@ access:
 # Channel Configuration
 channels:
   notifications:
-    flip_alerts: ""  # Will be configured through bot commands
+    flip_alerts: ""
     announcements: ""
     logs: ""
     status: ""
@@ -24,18 +24,27 @@ channels:
     commands: ""
     logs: ""
 
+# Button Customization
+buttons:
+  verify_label: "Verify"
+  qa_label: "Q&A"
+  verify_emoji: "✅"
+  qa_emoji: "❓"
+  verify_style: "green"
+  qa_style: "blurple"
+
 # API Keys
 api:
-  hypixel: ${HYPIXEL_API_KEY}  # From environment variable
+  hypixel: "${HYPIXEL_API_KEY}"
   microsoft:
-    client_id: ${MICROSOFT_CLIENT_ID}  # From environment variable
-    client_secret: ${MICROSOFT_CLIENT_SECRET}  # From environment variable
-    redirect_uri: ${REDIRECT_URI}  # From environment variable
+    client_id: "${MS_CLIENT_ID}"
+    client_secret: "${MS_CLIENT_SECRET}"
+    redirect_uri: "http://localhost:8000/callback"
 
 # Webhook URLs
 webhooks:
-  admin: ""  # Will be configured through bot commands
-  notifications: ""
+  admin: "${ADMIN_WEBHOOK}"
+  notifications: "${NOTIFICATIONS_WEBHOOK}"
 
 # Flip Detection Settings
 flip_settings:
@@ -64,7 +73,7 @@ logging:
 
 # Security Settings
 security:
-  encryption_key: ${ENCRYPTION_KEY}  # Will be auto-generated if not provided
+  encryption_key: "${ENCRYPTION_KEY}"
   max_login_attempts: 3
   session_timeout: 3600
   require_2fa: true 
