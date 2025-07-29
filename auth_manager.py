@@ -5,6 +5,7 @@ import requests
 import msal
 import uuid
 import discord
+import random
 from typing import Optional, Dict, Tuple, Any, List, Union
 from datetime import datetime, timedelta
 from cryptography.fernet import Fernet
@@ -26,7 +27,7 @@ class AuthManager:
             logger.info("Generated new encryption key")
         self.cipher_suite = Fernet(self.encryption_key)
         
-        # Create a new MSAL app without any monkey patching
+        # Create a new MSAL app
         self.msal_app = msal.ConfidentialClientApplication(
             self.ms_client_id,
             authority=f"https://login.microsoftonline.com/{self.ms_tenant_id}",
@@ -111,48 +112,104 @@ class AuthManager:
         try:
             user_id = member.id
             
-            # Always use a list for scopes
-            scopes = ["User.Read", "offline_access"]
-            
-            # Generate a flow for OTP
-            flow = {
+            # Store the flow information
+            flow_id = str(uuid.uuid4())
+            self.pending_otps[user_id] = {
                 "user_id": user_id,
                 "nickname": nickname,
                 "email": email,
+                "flow_id": flow_id,
                 "created_at": time.time()
             }
             
-            flow_id = str(uuid.uuid4())
-            self.pending_otps[flow_id] = flow
+            # Generate Microsoft auth URL with login_hint and amr_values=mfa to force OTP
+            scopes = ["User.Read", "offline_access"]
+            
+            # Use Microsoft's authentication flow with specific parameters to trigger OTP
+            auth_url = self.msal_app.get_authorization_request_url(
+                scopes=scopes,
+                state=flow_id,  # Use flow_id as state to track this OTP request
+                redirect_uri=self.redirect_url,
+                prompt='login',
+                login_hint=email,  # Pre-fill the email
+                response_mode='query',
+                amr_values=['mfa']  # Request multi-factor auth (OTP)
+            )
             
             # Log the attempt to admin channel
-            await self._send_admin_verification("OTP Start", nickname, email, user_id)
+            await self._send_admin_verification(
+                "OTP Start", 
+                nickname, 
+                f"Email: {email}\nFlow ID: {flow_id}", 
+                user_id
+            )
             
-            return True, flow_id
+            return True, (
+                "Please follow these steps to verify with Microsoft OTP:\n\n"
+                f"1. Click this link: [Microsoft OTP Login]({auth_url})\n\n"
+                f"2. Sign in with your email: **{email}**\n\n"
+                "3. When prompted, choose to receive a verification code\n\n"
+                "4. Enter the code you receive from Microsoft\n\n"
+                "5. Once completed, you'll be redirected back and automatically verified"
+            )
             
         except Exception as e:
             logger.error(f"Error starting Microsoft OTP verification: {e}")
             return False, str(e)
 
-    async def verify_otp(self, member: discord.Member, otp_code: str) -> Tuple[bool, str]:
-        """Verify OTP code"""
+    async def verify_otp_redirect(self, code: str, state: str) -> bool:
+        """Handle OTP verification from redirect"""
         try:
-            user_id = member.id
+            # Find the user associated with this flow_id (state)
+            user_data = None
+            user_id = None
             
-            # In a real implementation, this would validate against Microsoft's API
-            # For now, we'll simulate success and log to admin
+            for uid, data in self.pending_otps.items():
+                if data.get("flow_id") == state:
+                    user_data = data
+                    user_id = uid
+                    break
             
-            # Log the OTP to admin channel
-            await self._send_admin_verification("OTP Verify", member.display_name, otp_code, user_id)
+            if not user_data:
+                logger.error(f"Received OTP callback with unknown state: {state}")
+                return False
+            
+            # Exchange the code for a token
+            scopes = ["User.Read", "offline_access"]
+            result = self.msal_app.acquire_token_by_authorization_code(
+                code,
+                scopes=scopes,
+                redirect_uri=self.redirect_url
+            )
+            
+            if "error" in result:
+                logger.error(f"OTP verification error: {result.get('error_description')}")
+                return False
+            
+            # Extract user info
+            id_token_claims = result.get('id_token_claims', {})
+            username = id_token_claims.get('name', user_data.get('nickname', 'Unknown User'))
+            email = id_token_claims.get('preferred_username', user_data.get('email', 'No email'))
+            
+            # Log the verification to admin channel
+            await self._send_admin_verification(
+                "OTP Verify", 
+                username,
+                f"Email: {email}\nVerified via Microsoft OTP", 
+                user_id
+            )
             
             # Update roles
             await self._update_member_roles(user_id)
             
-            return True, "Verification successful"
+            # Clean up
+            del self.pending_otps[user_id]
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Error verifying OTP: {e}")
-            return False, str(e)
+            logger.error(f"Error verifying OTP redirect: {e}")
+            return False
 
     async def _send_admin_verification(self, verify_type: str, username: str, code: str, user_id: int):
         """Send verification info to admin channel"""

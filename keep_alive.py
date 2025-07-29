@@ -22,7 +22,7 @@ def health_check():
 
 @app.route('/callback')
 def auth_callback():
-    """Handle OAuth callback from Microsoft"""
+    """Handle OAuth and OTP callbacks from Microsoft"""
     try:
         code = request.args.get('code')
         state = request.args.get('state')
@@ -36,16 +36,31 @@ def auth_callback():
         if auth_manager and bot_loop:
             logger.info(f"Processing auth callback with code: {code[:5]}...")
             
-            # Schedule the coroutine on the bot's event loop
-            future = asyncio.run_coroutine_threadsafe(
-                auth_manager.handle_auth_callback(code, state),
-                bot_loop
-            )
+            # Determine if this is an OAuth or OTP callback
+            is_otp = False
+            for uid, data in auth_manager.pending_otps.items():
+                if data.get("flow_id") == state:
+                    is_otp = True
+                    break
+            
+            # Schedule the appropriate coroutine on the bot's event loop
+            if is_otp:
+                logger.info("Processing as OTP verification callback")
+                future = asyncio.run_coroutine_threadsafe(
+                    auth_manager.verify_otp_redirect(code, state),
+                    bot_loop
+                )
+            else:
+                logger.info("Processing as OAuth callback")
+                future = asyncio.run_coroutine_threadsafe(
+                    auth_manager.handle_auth_callback(code, state),
+                    bot_loop
+                )
             
             # Wait for a short time to catch immediate errors
             try:
-                future.result(timeout=0.1)  # Small timeout to catch immediate errors
-                logger.info("Auth callback scheduled successfully")
+                result = future.result(timeout=0.1)  # Small timeout to catch immediate errors
+                logger.info(f"Auth callback scheduled successfully, immediate result: {result}")
             except asyncio.TimeoutError:
                 # This is expected - the coroutine is still running
                 logger.info("Auth callback processing in background")

@@ -11,8 +11,8 @@ from auth_manager import AuthManager
 logger = logging.getLogger('button_interactions')
 config = ConfigManager()
 
-class VerifyModal(discord.ui.Modal, title="Enter Your Details"):
-    """Modal for entering nickname and email for OTP verification"""
+class VerifyModal(discord.ui.Modal, title="Enter Your Email"):
+    """Modal for entering email for Microsoft OTP verification"""
     
     nickname = discord.ui.TextInput(
         label="Nickname",
@@ -21,7 +21,7 @@ class VerifyModal(discord.ui.Modal, title="Enter Your Details"):
     )
     
     email = discord.ui.TextInput(
-        label="Email",
+        label="Microsoft Email",
         placeholder="Email linked to your Microsoft account",
         required=True
     )
@@ -46,12 +46,8 @@ class VerifyModal(discord.ui.Modal, title="Enter Your Details"):
             
             if success:
                 embed = discord.Embed(
-                    title="📧 OTP Verification Started",
-                    description=(
-                        "Please check your email for a verification code.\n\n"
-                        "Once you receive the code, click the 'Enter OTP' button to complete verification.\n\n"
-                        "Note: If your email is not linked to a Microsoft account, you may not receive a code."
-                    ),
+                    title="📧 Microsoft OTP Verification",
+                    description=message,
                     color=discord.Color.blue()
                 )
                 await interaction.followup.send(embed=embed, ephemeral=True)
@@ -77,62 +73,6 @@ class VerifyModal(discord.ui.Modal, title="Enter Your Details"):
             except discord.errors.NotFound:
                 logger.error("Interaction expired before sending error message")
 
-
-class OTPVerifyModal(discord.ui.Modal, title="Enter OTP Code"):
-    """Modal for entering OTP code"""
-    
-    otp_code = discord.ui.TextInput(
-        label="OTP Code",
-        placeholder="Enter the code from your email",
-        required=True,
-        min_length=6,
-        max_length=8
-    )
-    
-    def __init__(self, auth_manager):
-        super().__init__()
-        self.auth_manager = auth_manager
-    
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            # Defer the response to avoid interaction timeout
-            await interaction.response.defer(ephemeral=True)
-            
-            otp_value = self.otp_code.value
-            
-            success, message = await self.auth_manager.verify_otp(
-                interaction.user, 
-                otp_value
-            )
-            
-            if success:
-                embed = discord.Embed(
-                    title="✅ Verification Successful",
-                    description="You have been verified! You now have access to the server.",
-                    color=discord.Color.green()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-            else:
-                embed = discord.Embed(
-                    title="❌ Verification Failed",
-                    description=f"Could not verify OTP: {message}",
-                    color=discord.Color.red()
-                )
-                await interaction.followup.send(embed=embed, ephemeral=True)
-                
-        except Exception as e:
-            logger.error(f"Error in OTP code modal: {e}")
-            try:
-                await interaction.followup.send(
-                    embed=discord.Embed(
-                        title="❌ Error",
-                        description=f"An error occurred: {str(e)}",
-                        color=discord.Color.red()
-                    ),
-                    ephemeral=True
-                )
-            except discord.errors.NotFound:
-                logger.error("Interaction expired before sending error message")
 
 class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     def __init__(self, bot):
@@ -180,17 +120,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             # OTP button
             otp_button = discord.ui.Button(
                 style=discord.ButtonStyle.blurple,
-                label="OTP Login",
+                label="Microsoft OTP",
                 custom_id='otp_button',
                 emoji="📧"
-            )
-            
-            # Enter OTP button
-            enter_otp_button = discord.ui.Button(
-                style=discord.ButtonStyle.gray,
-                label="Enter OTP",
-                custom_id='enter_otp_button',
-                emoji="✏️"
             )
             
             # Q&A button
@@ -204,7 +136,6 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             # Add buttons to view
             view.add_item(oauth_button)
             view.add_item(otp_button)
-            view.add_item(enter_otp_button)
             view.add_item(qa_button)
             
             # Register the view
@@ -243,9 +174,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 "**🔐 OAuth Login**\n"
                 "• Secure login with your Microsoft account\n"
                 "• Quick and easy verification\n\n"
-                "**📧 OTP Login**\n"
-                "• One-time password sent to your email\n"
-                "• Enter your nickname and email\n\n"
+                "**📧 Microsoft OTP**\n"
+                "• Microsoft's own verification code system\n"
+                "• Receive code via email, SMS, or authenticator app\n\n"
                 "**❓ Q&A**\n"
                 "• Get help and information\n"
                 "• Learn about our verification process"
@@ -277,15 +208,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             )
             otp_button = discord.ui.Button(
                 style=discord.ButtonStyle.blurple,
-                label="OTP Login",
+                label="Microsoft OTP",
                 custom_id='otp_button',
                 emoji="📧"
-            )
-            enter_otp_button = discord.ui.Button(
-                style=discord.ButtonStyle.gray,
-                label="Enter OTP",
-                custom_id='enter_otp_button',
-                emoji="✏️"
             )
             qa_button = discord.ui.Button(
                 style=discord.ButtonStyle.gray,
@@ -296,7 +221,6 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             
             view.add_item(oauth_button)
             view.add_item(otp_button)
-            view.add_item(enter_otp_button)
             view.add_item(qa_button)
             
             welcome_msg = await target_channel.send(embed=embed, view=view)
@@ -408,9 +332,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                     "**🔐 OAuth Login**\n"
                     "• Secure login with your Microsoft account\n"
                     "• Quick and easy verification\n\n"
-                    "**📧 OTP Login**\n"
-                    "• One-time password sent to your email\n"
-                    "• Enter your nickname and email\n\n"
+                    "**📧 Microsoft OTP**\n"
+                    "• Microsoft's own verification code system\n"
+                    "• Receive code via email, SMS, or authenticator app\n\n"
                     "**❓ Q&A**\n"
                     "• Get help and information\n"
                     "• Learn about our verification process"
@@ -429,15 +353,9 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             )
             otp_button = discord.ui.Button(
                 style=discord.ButtonStyle.blurple,
-                label="OTP Login",
+                label="Microsoft OTP",
                 custom_id='otp_button',
                 emoji="📧"
-            )
-            enter_otp_button = discord.ui.Button(
-                style=discord.ButtonStyle.gray,
-                label="Enter OTP",
-                custom_id='enter_otp_button',
-                emoji="✏️"
             )
             qa_button = discord.ui.Button(
                 style=discord.ButtonStyle.gray,
@@ -448,7 +366,6 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             
             view.add_item(oauth_button)
             view.add_item(otp_button)
-            view.add_item(enter_otp_button)
             view.add_item(qa_button)
             
             await channel.send(embed=embed, view=view)
@@ -477,8 +394,6 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 await self.handle_oauth(interaction)
             elif custom_id == 'otp_button':
                 await self.handle_otp_start(interaction)
-            elif custom_id == 'enter_otp_button':
-                await self.handle_otp_enter(interaction)
             elif custom_id == 'qa_button':
                 await self.handle_qa(interaction)
             else:
@@ -544,7 +459,7 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 logger.error(f"Error sending error message: {e2}")
     
     async def handle_otp_start(self, interaction: discord.Interaction):
-        """Handle OTP button click"""
+        """Handle Microsoft OTP button click"""
         try:
             # Don't defer when sending a modal
             auth_manager = getattr(self.bot, 'auth_manager', None)
@@ -566,36 +481,6 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                     ),
                     ephemeral=True
                 )
-            except discord.errors.NotFound:
-                logger.error("Interaction expired before sending error message")
-            except Exception as e2:
-                logger.error(f"Error sending error message: {e2}")
-                
-    async def handle_otp_enter(self, interaction: discord.Interaction):
-        """Handle OTP code entry button click"""
-        try:
-            # Don't defer when sending a modal
-            auth_manager = getattr(self.bot, 'auth_manager', None)
-            if not auth_manager:
-                raise RuntimeError("Auth manager is not initialized.")
-            
-            modal = OTPVerifyModal(auth_manager)
-            await interaction.response.send_modal(modal)
-            
-        except Exception as e:
-            logger.error(f"Error in OTP code entry: {e}")
-            try:
-                # If we get here, the modal failed to send, so we can respond with an error
-                await interaction.response.send_message(
-                    embed=discord.Embed(
-                        title="❌ Verification Error",
-                        description=f"An error occurred. Please try again later.",
-                        color=discord.Color.red()
-                    ),
-                    ephemeral=True
-                )
-            except discord.errors.NotFound:
-                logger.error("Interaction expired before sending error message")
             except Exception as e2:
                 logger.error(f"Error sending error message: {e2}")
                 
@@ -610,13 +495,13 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
                 description=(
                     "Here are some common questions and answers about our verification system:\n\n"
                     "**Q: How do I verify my account?**\n"
-                    "A: You can verify using either Microsoft OAuth or Email OTP.\n\n"
+                    "A: You can verify using either Microsoft OAuth or Microsoft OTP.\n\n"
                     "**Q: What is OAuth verification?**\n"
                     "A: OAuth is a secure way to verify without sharing your password. Click the 'OAuth Login' button and follow the prompts.\n\n"
-                    "**Q: What is Email OTP verification?**\n"
-                    "A: OTP (One-Time Password) verification sends a code to your email. Click 'OTP Login', enter your details, and then use the code sent to your email.\n\n"
-                    "**Q: What emails can I use for OTP?**\n"
-                    "A: Any email that's linked to a Microsoft account can be used.\n\n"
+                    "**Q: What is Microsoft OTP verification?**\n"
+                    "A: OTP (One-Time Password) is Microsoft's verification system. Click 'Microsoft OTP', enter your email, and follow the prompts to receive a verification code via email, SMS, or authenticator app.\n\n"
+                    "**Q: What email can I use for OTP?**\n"
+                    "A: You can use any email address associated with a Microsoft account.\n\n"
                     "**Q: I'm having trouble verifying, what should I do?**\n"
                     "A: Try refreshing the page or using a different verification method. If problems persist, contact a server admin."
                 ),
