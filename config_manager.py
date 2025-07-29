@@ -11,16 +11,17 @@ class ConfigManager:
     _instance = None
     _config = None
     
-    def __new__(cls):
+    def __new__(cls, config_path='config.yaml'):
         if cls._instance is None:
             cls._instance = super(ConfigManager, cls).__new__(cls)
-            cls._instance._load_config()
+            cls._instance.config_path = config_path
+            cls._instance.config = cls._instance._load_config()
         return cls._instance
     
     def __init__(self, config_path='config.yaml'):
-        self.config_path = config_path
-        self.config = self._load_config()
-        
+        # No need to do anything here since __new__ handles initialization
+        pass
+    
     def _load_config(self) -> dict:
         """Load configuration from file."""
         try:

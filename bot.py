@@ -156,7 +156,7 @@ class AuthCommands(commands.Cog):
 
 
     @app_commands.command(name="configure_database", description="Configure database connection settings")
-    @app_commands.checks.dm_only()
+    @is_dm()
     async def configure_database(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="⚙️ Database Configuration",
