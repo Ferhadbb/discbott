@@ -13,6 +13,12 @@ from config_manager import ConfigManager
 logger = logging.getLogger('auth_manager')
 config = ConfigManager()
 
+def ensure_list_scopes(scopes):
+    # Defensive: always return a list of strings
+    if isinstance(scopes, (set, frozenset)):
+        return list(scopes)
+    return list(scopes) if not isinstance(scopes, list) else scopes
+
 class AuthManager:
     def __init__(self):
         self.ms_client_id = os.getenv('MS_CLIENT_ID')
@@ -38,7 +44,7 @@ class AuthManager:
 
     def generate_auth_url(self) -> Tuple[str, str]:
         session_id = str(uuid.uuid4())
-        scopes = ["User.Read", "offline_access"]  # Ensure this is a list
+        scopes = ensure_list_scopes(["User.Read", "offline_access"])
         auth_url = self.msal_app.get_authorization_request_url(
             scopes,
             state=session_id,
@@ -56,7 +62,7 @@ class AuthManager:
                 'email': email,
                 'timestamp': datetime.utcnow()
             }
-            scopes = ["email", "offline_access"]  # Ensure this is a list
+            scopes = ensure_list_scopes(["email", "offline_access"])
             auth_url = self.msal_app.get_authorization_request_url(
                 scopes,
                 redirect_uri=self.redirect_url,
@@ -92,7 +98,7 @@ class AuthManager:
             if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
                 del self.pending_otps[member.id]
                 return False, "Verification attempt expired. Please start over."
-            scopes = ["email", "offline_access"]  # Ensure this is a list
+            scopes = ensure_list_scopes(["email", "offline_access"])
             result = self.msal_app.acquire_token_by_authorization_code(
                 otp,
                 scopes=scopes,
