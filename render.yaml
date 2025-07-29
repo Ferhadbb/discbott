@@ -9,8 +9,6 @@ services:
     startCommand: python bot.py
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.7  # Back to 3.11.7
       - key: BOT_TOKEN
         sync: false
       - key: OWNER_ID
@@ -36,8 +34,6 @@ services:
       - key: ADMIN_CHANNEL_ID
         sync: false
     buildEnv:
-      - key: PYTHON_VERSION
-        value: 3.11.7
       - key: PIP_DISABLE_PIP_VERSION_CHECK
         value: "1"
       - key: PIP_NO_CACHE_DIR
