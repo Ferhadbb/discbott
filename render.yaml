@@ -7,7 +7,7 @@ services:
     healthCheckPath: /
     numInstances: 1
     domains:
-      - flipperbot.onrender.com
+      - flipperbot-5uhd.onrender.com
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -26,10 +26,6 @@ services:
       - key: MS_TENANT_ID
         sync: false
       - key: REDIRECT_URL
-        sync: false
-      - key: ENCRYPTION_KEY
-        sync: false
-      - key: OTP_SECRET_KEY
         sync: false
       - key: ADMIN_CHANNEL_ID
         sync: false 

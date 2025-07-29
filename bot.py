@@ -424,9 +424,12 @@ def main():
         'MS_CLIENT_ID',
         'MS_CLIENT_SECRET',
         'MS_TENANT_ID',
-        'REDIRECT_URI',
-        'JWT_SECRET_KEY',
-        'ADMIN_WEBHOOK',
+        'REDIRECT_URL',
+        'ADMIN_WEBHOOK'
+    ]
+    
+    # Optional environment variables
+    optional_env_vars = [
         'NOTIFICATIONS_WEBHOOK'
     ]
     
@@ -435,6 +438,12 @@ def main():
         logger.error(f"Missing required environment variables: {', '.join(missing_vars)}")
         logger.error("Please set these variables in your Render dashboard or .env file")
         return
+    
+    # Log optional variables that are missing
+    missing_optional = [var for var in optional_env_vars if not os.getenv(var)]
+    if missing_optional:
+        logger.warning(f"Missing optional environment variables: {', '.join(missing_optional)}")
+        logger.warning("These are not required but some features may be limited")
 
     # Check configuration
     required_settings = [
