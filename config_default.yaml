@@ -1,0 +1,70 @@
+# Bot Configuration
+bot:
+  token: ${DISCORD_TOKEN}  # From environment variable
+  prefix: "!"
+  status: "Watching for flips"
+  activity_type: "watching"
+
+# Access Control
+access:
+  owner_id: ${OWNER_ID}  # From environment variable
+  admin_ids: []  # Will be configured through bot commands
+  blacklisted_users: []
+  whitelist_enabled: false
+  whitelisted_users: []
+
+# Channel Configuration
+channels:
+  notifications:
+    flip_alerts: ""  # Will be configured through bot commands
+    announcements: ""
+    logs: ""
+    status: ""
+  admin:
+    commands: ""
+    logs: ""
+
+# API Keys
+api:
+  hypixel: ${HYPIXEL_API_KEY}  # From environment variable
+  microsoft:
+    client_id: ${MICROSOFT_CLIENT_ID}  # From environment variable
+    client_secret: ${MICROSOFT_CLIENT_SECRET}  # From environment variable
+    redirect_uri: ${REDIRECT_URI}  # From environment variable
+
+# Webhook URLs
+webhooks:
+  admin: ""  # Will be configured through bot commands
+  notifications: ""
+
+# Flip Detection Settings
+flip_settings:
+  check_interval: 30
+  min_profit: 100000
+  min_profit_percentage: 20
+  max_price: 1000000000
+  blacklisted_items: []
+  whitelist_items: []
+
+# Embed Settings
+embeds:
+  colors:
+    success: 0x00ff00
+    error: 0xff0000
+    info: 0x0000ff
+    flip: 0xffa500
+  show_timestamps: true
+  show_footers: true
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "bot.log"
+
+# Security Settings
+security:
+  encryption_key: ${ENCRYPTION_KEY}  # Will be auto-generated if not provided
+  max_login_attempts: 3
+  session_timeout: 3600
+  require_2fa: true 

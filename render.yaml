@@ -1,0 +1,18 @@
+services:
+  - type: web  # Changed from worker to web to enable HTTP requests
+    name: discord-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.7
+    healthCheckPath: /
+    numInstances: 1
+    domains:
+      - discord-bot.onrender.com  # Replace with your actual Render domain
+    disk:
+      name: tmp
+      mountPath: /tmp
+      sizeGB: 1 
