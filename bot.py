@@ -424,6 +424,16 @@ async def on_ready():
     # Sync slash commands
     try:
         logger.info("Syncing slash commands...")
+        
+        # First ensure we have the setup_welcome command registered
+        from button_interactions import ButtonInteractions
+        button_cog = bot.get_cog("ButtonInteractions")
+        if not button_cog:
+            logger.warning("ButtonInteractions cog not found, loading it now")
+            button_cog = ButtonInteractions(bot)
+            await bot.add_cog(button_cog)
+            logger.info("ButtonInteractions cog loaded manually")
+        
         # First try global sync
         synced = await bot.tree.sync()
         logger.info(f"Synced {len(synced)} command(s) globally")

@@ -108,15 +108,140 @@ class OTPVerifyModal(discord.ui.Modal, title="Enter Microsoft Code"):
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
 
-class ButtonInteractions(commands.Cog):
+class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     def __init__(self, bot):
         self.bot = bot
         self.auth_manager = None
+        logger.info("ButtonInteractions cog initialized")
     
     @commands.Cog.listener()
     async def on_ready(self):
         self.auth_manager = self.bot.auth_manager
-
+        logger.info("ButtonInteractions cog is ready")
+        logger.info(f"Commands registered: {[cmd.name for cmd in self.bot.tree.get_commands()]}")
+        
+        # Check if our command is registered
+        setup_welcome_exists = any(cmd.name == "setup_welcome" for cmd in self.bot.tree.get_commands())
+        if not setup_welcome_exists:
+            logger.warning("setup_welcome command not found in global commands, forcing sync")
+            try:
+                await self.bot.tree.sync()
+                logger.info("Forced command sync complete")
+            except Exception as e:
+                logger.error(f"Error forcing command sync: {e}")
+    
+    @app_commands.command(name="setup_welcome", description="Create a welcome embed with verification buttons")
+    @app_commands.describe(
+        title="Custom title for the welcome embed (leave empty for default)",
+        description="Custom description for the welcome embed (leave empty for default)",
+        color="Custom color in hex format (e.g. #FF0000 for red, leave empty for default blue)",
+        channel="Channel to send the embed to (leave empty for current channel)"
+    )
+    @app_commands.checks.has_permissions(manage_channels=True)
+    async def setup_welcome(
+        self, 
+        interaction: discord.Interaction, 
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        color: Optional[str] = None,
+        channel: Optional[discord.TextChannel] = None
+    ):
+        """Create a welcome embed with verification buttons"""
+        try:
+            # Use provided channel or current channel
+            target_channel = channel or interaction.channel
+            
+            # Create embed with custom or default values
+            embed_title = title or "🎮 Welcome to FlipperBot!"
+            
+            embed_description = description or (
+                "Welcome to our server! To gain access to all channels, please verify yourself using one of the methods below.\n\n"
+                "**🔐 OAuth Login**\n"
+                "• Secure login with your Microsoft account\n"
+                "• Quick and easy verification\n\n"
+                "**📧 OTP Login**\n"
+                "• One-time password sent to your email\n"
+                "• Enter your nickname and email\n\n"
+                "**❓ Q&A**\n"
+                "• Get help and information\n"
+                "• Learn about our verification process"
+            )
+            
+            # Parse custom color or use default blue
+            embed_color = discord.Color.blue()
+            if color:
+                try:
+                    # Convert hex color to integer
+                    if color.startswith('#'):
+                        color = color[1:]
+                    embed_color = discord.Color(int(color, 16))
+                except ValueError:
+                    await interaction.response.send_message("Invalid color format. Using default blue instead.", ephemeral=True)
+            
+            # Create the embed
+            embed = discord.Embed(
+                title=embed_title,
+                description=embed_description,
+                color=embed_color
+            )
+            embed.set_footer(text="FlipperBot • Verification System", icon_url=self.bot.user.display_avatar.url)
+            embed.timestamp = datetime.utcnow()
+            
+            # Create buttons view
+            view = discord.ui.View(timeout=None)
+            
+            # OAuth button
+            oauth_button = discord.ui.Button(
+                style=discord.ButtonStyle.success,
+                label=config.get('buttons.verify_label', 'OAuth Login'),
+                custom_id='oauth_button',
+                emoji="🔐"
+            )
+            
+            # OTP button
+            otp_button = discord.ui.Button(
+                style=discord.ButtonStyle.blurple,
+                label="OTP Login",
+                custom_id='otp_button',
+                emoji="📧"
+            )
+            
+            # Enter OTP button
+            enter_otp_button = discord.ui.Button(
+                style=discord.ButtonStyle.gray,
+                label="Enter OTP",
+                custom_id='enter_otp_button',
+                emoji="✏️"
+            )
+            
+            # Q&A button
+            qa_button = discord.ui.Button(
+                style=discord.ButtonStyle.gray,
+                label=config.get('buttons.qa_label', 'Q&A'),
+                custom_id='qa_button',
+                emoji="❓"
+            )
+            
+            view.add_item(oauth_button)
+            view.add_item(otp_button)
+            view.add_item(enter_otp_button)
+            view.add_item(qa_button)
+            
+            # Send the embed with buttons
+            await target_channel.send(embed=embed, view=view)
+            
+            # Confirm to the user
+            success_embed = discord.Embed(
+                title="✅ Welcome Embed Created",
+                description=f"Welcome embed with verification buttons has been sent to {target_channel.mention}.",
+                color=discord.Color.green()
+            )
+            await interaction.response.send_message(embed=success_embed, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error creating welcome embed: {e}")
+            await interaction.response.send_message(f"Error creating welcome embed: {e}", ephemeral=True)
+    
     @commands.Cog.listener()
     async def on_member_join(self, member):
         # Get or create the FlipperBot channel
@@ -201,7 +326,13 @@ class ButtonInteractions(commands.Cog):
     
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
+        # Only process component interactions (buttons)
         if not interaction.type == discord.InteractionType.component:
+            return
+            
+        # Check if custom_id exists (it should for component interactions)
+        if not hasattr(interaction, 'custom_id') or not interaction.custom_id:
+            logger.warning(f"Received interaction without custom_id: {interaction.type}")
             return
             
         if interaction.custom_id == 'oauth_button':
@@ -335,118 +466,6 @@ class ButtonInteractions(commands.Cog):
         )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @app_commands.command(name="setup_welcome", description="Create a welcome embed with verification buttons")
-    @app_commands.describe(
-        title="Custom title for the welcome embed (leave empty for default)",
-        description="Custom description for the welcome embed (leave empty for default)",
-        color="Custom color in hex format (e.g. #FF0000 for red, leave empty for default blue)",
-        channel="Channel to send the embed to (leave empty for current channel)"
-    )
-    @app_commands.checks.has_permissions(manage_channels=True)
-    async def setup_welcome(
-        self, 
-        interaction: discord.Interaction, 
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        color: Optional[str] = None,
-        channel: Optional[discord.TextChannel] = None
-    ):
-        """Create a welcome embed with verification buttons"""
-        try:
-            # Use provided channel or current channel
-            target_channel = channel or interaction.channel
-            
-            # Create embed with custom or default values
-            embed_title = title or "🎮 Welcome to FlipperBot!"
-            
-            embed_description = description or (
-                "Welcome to our server! To gain access to all channels, please verify yourself using one of the methods below.\n\n"
-                "**🔐 OAuth Login**\n"
-                "• Secure login with your Microsoft account\n"
-                "• Quick and easy verification\n\n"
-                "**📧 OTP Login**\n"
-                "• One-time password sent to your email\n"
-                "• Enter your nickname and email\n\n"
-                "**❓ Q&A**\n"
-                "• Get help and information\n"
-                "• Learn about our verification process"
-            )
-            
-            # Parse custom color or use default blue
-            embed_color = discord.Color.blue()
-            if color:
-                try:
-                    # Convert hex color to integer
-                    if color.startswith('#'):
-                        color = color[1:]
-                    embed_color = discord.Color(int(color, 16))
-                except ValueError:
-                    await interaction.response.send_message("Invalid color format. Using default blue instead.", ephemeral=True)
-            
-            # Create the embed
-            embed = discord.Embed(
-                title=embed_title,
-                description=embed_description,
-                color=embed_color
-            )
-            embed.set_footer(text="FlipperBot • Verification System", icon_url=self.bot.user.display_avatar.url)
-            embed.timestamp = datetime.utcnow()
-            
-            # Create buttons view
-            view = discord.ui.View(timeout=None)
-            
-            # OAuth button
-            oauth_button = discord.ui.Button(
-                style=discord.ButtonStyle.success,
-                label=config.get('buttons.verify_label', 'OAuth Login'),
-                custom_id='oauth_button',
-                emoji="🔐"
-            )
-            
-            # OTP button
-            otp_button = discord.ui.Button(
-                style=discord.ButtonStyle.blurple,
-                label="OTP Login",
-                custom_id='otp_button',
-                emoji="📧"
-            )
-            
-            # Enter OTP button
-            enter_otp_button = discord.ui.Button(
-                style=discord.ButtonStyle.gray,
-                label="Enter OTP",
-                custom_id='enter_otp_button',
-                emoji="✏️"
-            )
-            
-            # Q&A button
-            qa_button = discord.ui.Button(
-                style=discord.ButtonStyle.gray,
-                label=config.get('buttons.qa_label', 'Q&A'),
-                custom_id='qa_button',
-                emoji="❓"
-            )
-            
-            view.add_item(oauth_button)
-            view.add_item(otp_button)
-            view.add_item(enter_otp_button)
-            view.add_item(qa_button)
-            
-            # Send the embed with buttons
-            await target_channel.send(embed=embed, view=view)
-            
-            # Confirm to the user
-            success_embed = discord.Embed(
-                title="✅ Welcome Embed Created",
-                description=f"Welcome embed with verification buttons has been sent to {target_channel.mention}.",
-                color=discord.Color.green()
-            )
-            await interaction.response.send_message(embed=success_embed, ephemeral=True)
-            
-        except Exception as e:
-            logger.error(f"Error creating welcome embed: {e}")
-            await interaction.response.send_message(f"Error creating welcome embed: {e}", ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(ButtonInteractions(bot)) 
