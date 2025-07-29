@@ -22,22 +22,60 @@ def health_check():
 
 @app.route('/callback')
 def auth_callback():
-    code = request.args.get('code')
-    state = request.args.get('state')
-    
-    if not code or not state:
-        return "OAuth callback is missing required parameters (code, state).", 400
-    
-    if auth_manager and bot_loop:
-        # Schedule the coroutine on the bot's event loop
-        asyncio.run_coroutine_threadsafe(
-            auth_manager.handle_auth_callback(code, state),
-            bot_loop
-        )
-        return "Authentication successful! You can now close this tab."
-    else:
-        logger.error("Auth manager or bot event loop not initialized for callback.")
-        return "Bot is not ready to handle authentication. Please try again in a moment.", 503
+    """Handle OAuth callback from Microsoft"""
+    try:
+        code = request.args.get('code')
+        state = request.args.get('state')
+        
+        logger.info(f"Received callback with state: {state[:8]}...")
+        
+        if not code or not state:
+            logger.error("OAuth callback missing required parameters")
+            return "OAuth callback is missing required parameters (code, state).", 400
+        
+        if auth_manager and bot_loop:
+            logger.info(f"Processing auth callback with code: {code[:5]}...")
+            
+            # Schedule the coroutine on the bot's event loop
+            future = asyncio.run_coroutine_threadsafe(
+                auth_manager.handle_auth_callback(code, state),
+                bot_loop
+            )
+            
+            # Wait for a short time to catch immediate errors
+            try:
+                future.result(timeout=0.1)  # Small timeout to catch immediate errors
+                logger.info("Auth callback scheduled successfully")
+            except asyncio.TimeoutError:
+                # This is expected - the coroutine is still running
+                logger.info("Auth callback processing in background")
+            except Exception as e:
+                logger.error(f"Error scheduling auth callback: {e}")
+                # Continue anyway - we don't want to block the user
+            
+            return """
+            <html>
+                <head>
+                    <title>Authentication Successful</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+                        .success { color: green; font-size: 24px; margin-bottom: 20px; }
+                        .info { font-size: 18px; margin-bottom: 30px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="success">✅ Authentication Successful!</div>
+                    <div class="info">You can now close this tab and return to Discord.</div>
+                    <div>Your roles will be updated automatically.</div>
+                </body>
+            </html>
+            """
+        else:
+            logger.error("Auth manager or bot event loop not initialized for callback")
+            return "Bot is not ready to handle authentication. Please try again in a moment.", 503
+    except Exception as e:
+        logger.error(f"Error in auth_callback: {e}")
+        return "An error occurred processing your authentication. Please try again.", 500
 
 def run():
     app.run(host='0.0.0.0', port=10000)

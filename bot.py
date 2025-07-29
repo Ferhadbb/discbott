@@ -398,8 +398,11 @@ async def on_command_error(ctx, error):
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
     
-    # Pass bot instance to auth manager
+    # Ensure auth_manager has the bot instance
+    global auth_manager
     auth_manager.bot = bot
+    bot.auth_manager = auth_manager
+    logger.info("Auth manager initialized with bot instance")
     
     # Set bot status
     activity_type = config.get('bot.activity_type', 'watching').lower()
