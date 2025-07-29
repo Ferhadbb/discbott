@@ -510,16 +510,24 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
             if await rate_limiter.wait_if_needed(user_id):
                 logger.info(f"Rate limited user {user_id}, added delay")
             
-            # Route to the appropriate handler
-            if custom_id == 'oauth_button':
-                await self.handle_oauth(interaction)
-            elif custom_id == 'otp_button':
-                await self.handle_otp_start(interaction)
-            elif custom_id == 'qa_button':
-                await self.handle_qa(interaction)
-            else:
-                logger.info(f"Received interaction with unknown custom_id: {custom_id}")
-                
+            # Route to the appropriate handler with error handling
+            try:
+                if custom_id == 'oauth_button':
+                    await self.handle_oauth(interaction)
+                elif custom_id == 'otp_button':
+                    await self.handle_otp_start(interaction)
+                elif custom_id == 'qa_button':
+                    await self.handle_qa(interaction)
+                else:
+                    logger.info(f"Received interaction with unknown custom_id: {custom_id}")
+            except discord.errors.NotFound:
+                logger.debug(f"Interaction {interaction.id} not found (likely expired)")
+            except discord.errors.HTTPException as e:
+                if e.code == 40060:  # Interaction has already been acknowledged
+                    logger.debug(f"Interaction {interaction.id} already acknowledged")
+                else:
+                    logger.error(f"HTTP error in interaction {interaction.id}: {e}")
+            
         except discord.errors.NotFound:
             # This is expected sometimes when interactions expire
             logger.debug(f"Interaction {interaction.id} not found (likely expired)")
@@ -596,39 +604,59 @@ class ButtonInteractions(commands.Cog, name="ButtonInteractions"):
     async def handle_otp_start(self, interaction: discord.Interaction):
         """Handle Microsoft OTP button click"""
         try:
-            # Don't defer when sending a modal
-            auth_manager = getattr(self.bot, 'auth_manager', None)
-            if not auth_manager:
-                raise RuntimeError("Auth manager is not initialized.")
-            
             # Check rate limiting - more aggressive
             user_id = interaction.user.id
             if await rate_limiter.wait_if_needed(user_id):
                 logger.info(f"Rate limited user {user_id}, added delay")
             
+            # Don't defer when sending a modal
+            auth_manager = getattr(self.bot, 'auth_manager', None)
+            if not auth_manager:
+                raise RuntimeError("Auth manager is not initialized.")
+            
             # Add a delay before sending the modal
             await asyncio.sleep(1.0)
             
+            # IMPORTANT: Send the modal first, before any other response
             modal = VerifyModal(auth_manager)
-            await interaction.response.send_modal(modal)
+            
+            # Wrap the modal sending in a try-except block to catch interaction errors
+            try:
+                await interaction.response.send_modal(modal)
+                logger.info(f"Successfully sent OTP modal to user {user_id}")
+            except discord.errors.NotFound:
+                logger.error(f"Interaction {interaction.id} expired before modal could be sent")
+            except discord.errors.HTTPException as e:
+                if e.code == 40060:  # Interaction already acknowledged
+                    logger.error(f"Interaction {interaction.id} was already acknowledged, cannot send modal")
+                else:
+                    logger.error(f"HTTP error sending modal: {e}")
+                    # Try to send an error message if possible
+                    try:
+                        await interaction.response.send_message(
+                            embed=discord.Embed(
+                                title="❌ Verification Error",
+                                description="An error occurred. Please try again later.",
+                                color=discord.Color.red()
+                            ),
+                            ephemeral=True
+                        )
+                    except Exception:
+                        pass  # Already tried our best
             
         except Exception as e:
             logger.error(f"Error starting OTP verification: {e}")
+            # Only try to send an error message if we haven't responded to the interaction yet
             try:
-                # Make sure error message isn't too long
-                error_msg = str(e)
-                if len(error_msg) > 500:
-                    error_msg = error_msg[:500] + "..."
-                
-                # If we get here, the modal failed to send, so we can respond with an error
-                await interaction.response.send_message(
-                    embed=discord.Embed(
-                        title="❌ Verification Error",
-                        description=f"An error occurred. Please try again later.",
-                        color=discord.Color.red()
-                    ),
-                    ephemeral=True
-                )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        embed=discord.Embed(
+                            title="❌ Verification Error",
+                            description="An error occurred. Please try again later.",
+                            color=discord.Color.red()
+                        ),
+                        ephemeral=True
+                    )
             except Exception as e2:
                 logger.error(f"Error sending error message: {e2}")
                 

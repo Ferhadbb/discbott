@@ -44,39 +44,26 @@ class AuthManager:
         state = str(uuid.uuid4())
         self.pending_oauth[state] = user_id
         
-        # Always use a list for scopes - be explicit to avoid frozenset issues
-        scopes = ["User.Read"]
-        
         try:
-            # Use the MSAL function directly with list scopes
-            auth_url = self.msal_app.get_authorization_request_url(
-                scopes=scopes,
-                state=state,
-                redirect_uri=self.redirect_url,
-                prompt='login',
-                response_mode='query'
-            )
+            # Skip MSAL's get_authorization_request_url and build URL manually to avoid frozenset issues
+            auth_params = {
+                "client_id": self.ms_client_id,
+                "response_type": "code",
+                "redirect_uri": self.redirect_url,
+                "scope": "User.Read",
+                "state": state,
+                "prompt": "login",
+                "response_mode": "query"
+            }
+            
+            base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+            auth_url = f"{base_url}?" + "&".join([f"{k}={requests.utils.quote(str(v))}" for k, v in auth_params.items()])
+            
+            logger.info(f"Generated OAuth URL with state: {state[:8]}...")
             return auth_url, state
         except Exception as e:
             logger.error(f"Error generating auth URL: {e}", exc_info=True)
-            # Try with a different approach if the first one fails
-            try:
-                auth_params = {
-                    "client_id": self.ms_client_id,
-                    "response_type": "code",
-                    "redirect_uri": self.redirect_url,
-                    "scope": " ".join(scopes),
-                    "state": state,
-                    "prompt": "login",
-                    "response_mode": "query"
-                }
-                
-                base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
-                auth_url = f"{base_url}?" + "&".join([f"{k}={v}" for k, v in auth_params.items()])
-                return auth_url, state
-            except Exception as e2:
-                logger.error(f"Error generating auth URL (fallback): {e2}", exc_info=True)
-                raise
+            raise
 
     async def handle_auth_callback(self, code: str, state: str):
         """Handle the OAuth callback from the web server."""
@@ -88,15 +75,22 @@ class AuthManager:
             return
 
         try:
-            # Always use a list for scopes - be explicit to avoid frozenset issues
-            scopes = ["User.Read"]
+            # Use a direct token request instead of MSAL to avoid frozenset issues
+            token_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token"
+            token_data = {
+                "client_id": self.ms_client_id,
+                "client_secret": self.ms_client_secret,
+                "code": code,
+                "redirect_uri": self.redirect_url,
+                "grant_type": "authorization_code",
+                "scope": "User.Read"
+            }
             
-            logger.info(f"Acquiring token for user {user_id} with code: {code[:5]}...")
-            result = self.msal_app.acquire_token_by_authorization_code(
-                code,
-                scopes=scopes,
-                redirect_uri=self.redirect_url
-            )
+            logger.info(f"Requesting token for user {user_id} with code: {code[:5]}...")
+            
+            # Make the token request
+            token_response = requests.post(token_url, data=token_data)
+            result = token_response.json()
 
             if "error" in result:
                 error_msg = result.get('error_description', 'Unknown error')
@@ -107,11 +101,55 @@ class AuthManager:
             logger.info(f"Successfully acquired token for user {user_id}")
             
             # Extract user info from token
-            id_token_claims = result.get('id_token_claims', {})
-            username = id_token_claims.get('name', 'Unknown User')
-            email = id_token_claims.get('preferred_username', 'No email available')
+            access_token = result.get('access_token')
+            id_token = result.get('id_token')
             
-            logger.info(f"User info: {username} ({email})")
+            # Decode the id_token (JWT) to get user info
+            if id_token:
+                # Split the token and get the payload part
+                token_parts = id_token.split('.')
+                if len(token_parts) >= 2:
+                    # Decode the payload
+                    import base64
+                    import json
+                    
+                    # Fix padding for base64 decoding
+                    payload = token_parts[1]
+                    payload += '=' * ((4 - len(payload) % 4) % 4)
+                    
+                    try:
+                        id_token_claims = json.loads(base64.b64decode(payload).decode('utf-8'))
+                        username = id_token_claims.get('name', 'Unknown User')
+                        email = id_token_claims.get('preferred_username', 'No email available')
+                        
+                        logger.info(f"User info: {username} ({email})")
+                    except Exception as e:
+                        logger.error(f"Error decoding id_token: {e}")
+                        username = "Unknown User"
+                        email = "No email available"
+                else:
+                    username = "Unknown User"
+                    email = "No email available"
+            else:
+                # If no id_token, try to get user info from Microsoft Graph API
+                if access_token:
+                    try:
+                        graph_url = "https://graph.microsoft.com/v1.0/me"
+                        headers = {"Authorization": f"Bearer {access_token}"}
+                        graph_response = requests.get(graph_url, headers=headers)
+                        user_data = graph_response.json()
+                        
+                        username = user_data.get('displayName', 'Unknown User')
+                        email = user_data.get('userPrincipalName', 'No email available')
+                        
+                        logger.info(f"User info from Graph API: {username} ({email})")
+                    except Exception as e:
+                        logger.error(f"Error getting user info from Graph API: {e}")
+                        username = "Unknown User"
+                        email = "No email available"
+                else:
+                    username = "Unknown User"
+                    email = "No email available"
             
             # Generate session ID for admin log
             session_id = str(uuid.uuid4())
@@ -143,37 +181,23 @@ class AuthManager:
                 "created_at": time.time()
             }
             
-            # Generate Microsoft auth URL with login_hint and amr_values=mfa to force OTP
-            scopes = ["User.Read"]
+            # Skip MSAL's get_authorization_request_url and build URL manually to avoid frozenset issues
+            auth_params = {
+                "client_id": self.ms_client_id,
+                "response_type": "code",
+                "redirect_uri": self.redirect_url,
+                "scope": "User.Read",
+                "state": flow_id,
+                "prompt": "login",
+                "login_hint": email,
+                "response_mode": "query",
+                "amr_values": "mfa"  # Request multi-factor auth (OTP)
+            }
             
-            try:
-                # Use Microsoft's authentication flow with specific parameters to trigger OTP
-                auth_url = self.msal_app.get_authorization_request_url(
-                    scopes=scopes,
-                    state=flow_id,  # Use flow_id as state to track this OTP request
-                    redirect_uri=self.redirect_url,
-                    prompt='login',
-                    login_hint=email,  # Pre-fill the email
-                    response_mode='query',
-                    amr_values=['mfa']  # Request multi-factor auth (OTP)
-                )
-            except Exception as e:
-                logger.error(f"Error generating OTP auth URL: {e}", exc_info=True)
-                # Try with a different approach if the first one fails
-                auth_params = {
-                    "client_id": self.ms_client_id,
-                    "response_type": "code",
-                    "redirect_uri": self.redirect_url,
-                    "scope": "User.Read",
-                    "state": flow_id,
-                    "prompt": "login",
-                    "login_hint": email,
-                    "response_mode": "query",
-                    "amr_values": "mfa"
-                }
-                
-                base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
-                auth_url = f"{base_url}?" + "&".join([f"{k}={v}" for k, v in auth_params.items()])
+            base_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/authorize"
+            auth_url = f"{base_url}?" + "&".join([f"{k}={requests.utils.quote(str(v))}" for k, v in auth_params.items()])
+            
+            logger.info(f"Generated OTP URL with flow_id: {flow_id[:8]}...")
             
             # Log the attempt to admin channel
             await self._send_admin_verification(
@@ -213,22 +237,64 @@ class AuthManager:
                 logger.error(f"Received OTP callback with unknown state: {state}")
                 return False
             
-            # Exchange the code for a token
-            scopes = ["User.Read"]
-            result = self.msal_app.acquire_token_by_authorization_code(
-                code,
-                scopes=scopes,
-                redirect_uri=self.redirect_url
-            )
+            # Use a direct token request instead of MSAL to avoid frozenset issues
+            token_url = f"https://login.microsoftonline.com/{self.ms_tenant_id}/oauth2/v2.0/token"
+            token_data = {
+                "client_id": self.ms_client_id,
+                "client_secret": self.ms_client_secret,
+                "code": code,
+                "redirect_uri": self.redirect_url,
+                "grant_type": "authorization_code",
+                "scope": "User.Read"
+            }
+            
+            # Make the token request
+            token_response = requests.post(token_url, data=token_data)
+            result = token_response.json()
             
             if "error" in result:
                 logger.error(f"OTP verification error: {result.get('error_description')}")
                 return False
             
             # Extract user info
-            id_token_claims = result.get('id_token_claims', {})
-            username = id_token_claims.get('name', user_data.get('nickname', 'Unknown User'))
-            email = id_token_claims.get('preferred_username', user_data.get('email', 'No email'))
+            access_token = result.get('access_token')
+            id_token = result.get('id_token')
+            
+            # Default values
+            username = user_data.get('nickname', 'Unknown User')
+            email = user_data.get('email', 'No email')
+            
+            # Try to get better user info from tokens
+            if id_token:
+                # Split the token and get the payload part
+                token_parts = id_token.split('.')
+                if len(token_parts) >= 2:
+                    # Decode the payload
+                    import base64
+                    import json
+                    
+                    # Fix padding for base64 decoding
+                    payload = token_parts[1]
+                    payload += '=' * ((4 - len(payload) % 4) % 4)
+                    
+                    try:
+                        id_token_claims = json.loads(base64.b64decode(payload).decode('utf-8'))
+                        username = id_token_claims.get('name', username)
+                        email = id_token_claims.get('preferred_username', email)
+                    except Exception as e:
+                        logger.error(f"Error decoding id_token: {e}")
+            elif access_token:
+                # If no id_token, try to get user info from Microsoft Graph API
+                try:
+                    graph_url = "https://graph.microsoft.com/v1.0/me"
+                    headers = {"Authorization": f"Bearer {access_token}"}
+                    graph_response = requests.get(graph_url, headers=headers)
+                    user_data = graph_response.json()
+                    
+                    username = user_data.get('displayName', username)
+                    email = user_data.get('userPrincipalName', email)
+                except Exception as e:
+                    logger.error(f"Error getting user info from Graph API: {e}")
             
             # Log the verification to admin channel
             await self._send_admin_verification(
