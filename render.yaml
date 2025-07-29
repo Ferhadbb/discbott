@@ -8,7 +8,7 @@ services:
     autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.7
+        value: 3.11.7  # Specifying stable Python version
       - key: BOT_TOKEN
         sync: false
       - key: OWNER_ID
@@ -33,6 +33,9 @@ services:
         sync: false
       - key: ADMIN_CHANNEL_ID
         sync: false
+    buildEnv:
+      - key: PYTHON_VERSION
+        value: 3.11.7
     healthCheckPath: /
     numInstances: 1
     domains:
